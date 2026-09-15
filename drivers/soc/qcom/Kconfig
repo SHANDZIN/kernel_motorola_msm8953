@@ -537,6 +537,14 @@ config CEDRIC_DTB
 	  Only include Cedric specific DTBs to limit the number that
 	  get built during kernel compilation.
 
+config DEEN_DTB
+        depends on ARCH_QCOM
+        default n
+        bool "Deen DTBs"
+        help
+          Only include Deen specific DTBs to limit the number that
+          get built during kernel compilation.
+
 config SANDERS_DTB
 	depends on ARCH_QCOM
 	default n

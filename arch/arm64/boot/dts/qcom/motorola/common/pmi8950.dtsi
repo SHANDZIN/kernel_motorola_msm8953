@@ -1,0 +1,4 @@
+&flash_led {
+	/delete-property/ qcom,clamp-curr;
+	qcom,clamp-current = <200>;
+};
