@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
 #
-# Aurora Kernel build - sanders (Moto G5s Plus)
+# Aurora Kernel build - deen (Motorola One)
 # KSU OFF by default; use --ksu to build with ReSukiSU.
 #
 
 SECONDS=0
 
 # ===== Device / Kernel =====
-DEVICE="sanders"
-DEVICE_NAME="Moto G5s Plus"
-DEFCONFIG="sanders_defconfig"
+DEVICE="deen"
+DEVICE_NAME="Motorola One"
+DEFCONFIG="deen_defconfig"
 
 # ===== ReSukiSU (default: OFF, enable with --ksu) =====
 KSU_REPO="https://github.com/ReSukiSU/ReSukiSU"
@@ -22,14 +22,14 @@ TC_DIR="$(pwd)/tc/clang-r522817"
 export PATH="$TC_DIR/bin:$PATH"
 
 # ===== AnyKernel3 =====
-AK3_REPO="https://github.com/Sanders-Revived/AnyKernel3"
-AK3_BRANCH="sanders"
+AK3_REPO="https://github.com/Vhmit/AnyKernel3"
+AK3_BRANCH="deen"
 AK3_DIR="$(pwd)/android/AnyKernel3"
 
 # ===== Output =====
 OUT_DIR="$(pwd)/out"
 BOOT_DIR="$OUT_DIR/arch/arm64/boot"
-KERNEL_IMG="$BOOT_DIR/Image.gz"
+KERNEL_IMG="$BOOT_DIR/Image.gz-dtb"
 
 usage() {
     awk '/^SECONDS=0/{exit} NR>=3' "$0" | sed 's/^# \{0,1\}//'
@@ -151,11 +151,11 @@ make -j$(nproc --all) O=out ARCH=arm64 \
     OBJCOPY=llvm-objcopy OBJDUMP=llvm-objdump STRIP=llvm-strip \
     CROSS_COMPILE=aarch64-linux-gnu- \
     CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-    LLVM=1 LLVM_IAS=1 Image.gz
+    LLVM=1 LLVM_IAS=1 Image.gz-dtb
 
 # ===== Check compilation =====
 if ! [ -f "$KERNEL_IMG" ]; then
-    echo "[!] Compilation failed – Image.gz not found"
+    echo "[!] Compilation failed – Image.gz-dtb not found"
     exit 1
 fi
 
