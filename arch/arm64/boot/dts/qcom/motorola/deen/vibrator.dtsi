@@ -10,13 +10,45 @@
  * GNU General Public License for more details.
  */
 
+#define DEEN_VIB_VMAX_MV 2600
+
+#if !defined(CONFIG_INPUT_QTI_HAPTICS)
 &pmi_haptic {
 	qcom,lra-auto-res-mode="qwd";
 	qcom,lra-high-z="opt1";
 	qcom,lra-res-cal-period = <0>;
 	qcom,wave-play-rate-us = <4878>;
-	qcom,vmax-mv = <2600>;
-	qcom,vmax-low-mv = <2600>;
+	qcom,vmax-mv = <DEEN_VIB_VMAX_MV>;
+	qcom,vmax-low-mv = <DEEN_VIB_VMAX_MV>;
 	qcom,ilim-ma = <100>;
 	qcom,brake-pattern = [03 03 03 00];
 };
+#endif
+
+#ifdef CONFIG_INPUT_QTI_HAPTICS
+&pmi_haptic {
+	compatible = "qcom,haptics";
+	qcom,actuator-type = "lra";
+	qcom,vmax-mv = <DEEN_VIB_VMAX_MV>;
+	qcom,play-rate-us = <4878>;
+	qcom,lra-auto-resonance-mode = "qwd";
+	qcom,lra-resonance-sig-shape = "square";
+
+	wf_0 {
+		/* CLICK */
+		qcom,effect-id = <0>;
+		qcom,wf-vmax-mv = <DEEN_VIB_VMAX_MV>;
+		qcom,wf-pattern = [7e 7e 7e];
+		qcom,wf-play-rate-us = <4878>;
+		qcom,wf-brake-pattern = [01 00 01 00];
+	};
+	wf_1 {
+		/* DOUBLE CLICK */
+		qcom,effect-id = <1>;
+		qcom,wf-vmax-mv = <DEEN_VIB_VMAX_MV>;
+		qcom,wf-pattern = [7e 7e 02 02 02 02 02 02];
+		qcom,wf-play-rate-us = <4878>;
+		qcom,wf-repeat-count = <2>;
+	};
+};
+#endif
