@@ -232,7 +232,7 @@ int_codec: sound {
 		report_type = <1>;
 	};
 	novatek@62 {
-		compatible = "novatek,NVT-ts-moto8937";
+		compatible = "novatek,NVT-ts";
 		reg = <0x62>;
 		status = "ok";
 		novatek,reset-gpio = <&tlmm 64 0x00>;

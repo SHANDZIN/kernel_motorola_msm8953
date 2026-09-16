@@ -14,7 +14,6 @@ if INPUT_TOUCHSCREEN
 source "drivers/input/touchscreen/synaptics_mmi/Kconfig"
 source "drivers/input/touchscreen/synaptics_dsx_2.6/Kconfig"
 source "drivers/input/touchscreen/ilitek_mmi/Kconfig"
-source "drivers/input/touchscreen/nt36xxx/Kconfig"
 source "drivers/input/touchscreen/focaltech_mmi/Kconfig"
 
 config TOUCHSCREEN_PROPERTIES
