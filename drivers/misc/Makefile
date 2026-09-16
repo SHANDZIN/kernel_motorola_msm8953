@@ -71,6 +71,7 @@ obj-$(CONFIG_VXR200_XR_MISC) += vxr7200.o
 
 
 obj-$(CONFIG_MOTO_UTAG) += utag/
+obj-$(CONFIG_FUSB302) += fusb302/
 
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_core.o
 lkdtm-$(CONFIG_LKDTM)		+= lkdtm_bugs.o
