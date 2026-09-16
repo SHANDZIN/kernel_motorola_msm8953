@@ -12,7 +12,7 @@
 
 &soc {
 	et320: et320{
-		compatible = "egistec,et320";
+		compatible = "egistec,et516";
 		status = "ok";
 		reg = <0>;
 		interrupt-parent = <&tlmm>;
