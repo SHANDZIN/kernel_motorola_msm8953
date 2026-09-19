@@ -10,6 +10,12 @@
  * GNU General Public License for more details.
  */
 
+ / {
+        aliases {
+                /delete-property/ spi3;
+        };
+};
+
 &soc {
         qusb_phy: qusb@79000 {
                 qcom,qusb-phy-init-seq = <0xF8 0x80
@@ -64,6 +70,8 @@
 };
 
 &i2c_1 {
+    status = "okay";
+
        fusb302@22 {
             compatible = "fairchild,fusb302";
             reg = <0x22>;
@@ -79,6 +87,8 @@
         status = "disabled";
 };
 
-
-
-
+&blsp1_uart0 {
+        status = "ok";
+        pinctrl-names = "default";
+        pinctrl-0 = <&uart_console_active>;
+};

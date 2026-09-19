@@ -22,6 +22,7 @@
 		status = "ok";
 		novatek,reset-gpio = <&tlmm 64 0x00>;
 		novatek,irq-gpio = <&tlmm 65 0x2001>;
+		novatek,def-max-resolution = <720 1520>;
 	};
 
 	focaltech@38 {

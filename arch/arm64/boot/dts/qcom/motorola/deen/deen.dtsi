@@ -14,7 +14,6 @@
 #include "android.dtsi"
 #include "audio.dtsi"
 #include "battery.dtsi"
-#include "bus.dtsi"
 #include "camera.dtsi"
 #include "display.dtsi"
 #include "fingerprint.dtsi"

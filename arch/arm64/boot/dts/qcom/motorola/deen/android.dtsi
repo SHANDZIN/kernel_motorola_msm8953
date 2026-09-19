@@ -12,6 +12,7 @@
 
 &firmware {
         android {
+	    /delete-node/ vbmeta;
                 fstab {
                         vendor {
                                 compatible = "android,vendor";
@@ -28,9 +29,6 @@
                                 mnt_flags = "ro,barrier=1,discard";
                                 fsmgr_flags = "wait,verify,slotselect";
                                 status = "ok";
-                        };
-                        system {
-                                status = "disable";
                         };
                 };
         };
