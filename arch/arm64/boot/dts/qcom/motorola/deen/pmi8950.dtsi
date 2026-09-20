@@ -14,6 +14,10 @@
 	qcom,pmi8950@2 {
 		/delete-node/ qcom,leds@a100;
 
+                qcom,power-on@800 {
+                        qcom,shipmode;
+                };
+
 		qcom,leds@1000 {
 			status = "ok";
 			reg = <0x1000 0x100>;
@@ -25,6 +29,8 @@
 
 	qcom,pm8953@0 {
 		qcom,power-on@800 {
+			/delete-property/ qcom,store-hard-reset-reason;
+
 			qcom,pon_3 {
 				qcom,pon-type = <3>;
 				qcom,support-reset = <1>;

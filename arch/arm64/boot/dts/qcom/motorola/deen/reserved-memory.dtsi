@@ -54,11 +54,3 @@
 &qcom_seecom {
 	reg = <0x84300000 0x2000000>;
 };
-
-&spmi_bus {
-	qcom,pmi8950@2 {
-		qcom,power-on@800 {
-			qcom,shipmode;
-		};
-	};
-};
