@@ -1,0 +1,94 @@
+/* Copyright (c) 2018, Motorola Mobility Inc. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+ / {
+        aliases {
+                /delete-property/ spi3;
+        };
+};
+
+&soc {
+        qusb_phy: qusb@79000 {
+                qcom,qusb-phy-init-seq = <0xF8 0x80
+                                        0x97 0x84
+                                        0x83 0x88
+                                        0xC7 0x8C
+                                        0x14 0x9C
+                                        0x30 0x08
+                                        0x79 0x0C
+                                        0x21 0x10
+                                        0x00 0x90
+                                        0x9F 0x1C
+                                        0x00 0x18>;
+                /*Make sure QUSB PHY is into proper state to
+                  avoid interfering USB charger detection*/
+                mmi,enable-high-z-state;
+        };
+
+	gpio_keys {
+		compatible = "gpio-keys";
+		label = "gpio-keys";
+		pinctrl-names = "default";
+		pinctrl-0 = <&gpio_key>;
+
+		vol_up {
+			label = "volume_up";
+			gpios = <&tlmm 85 0x1>;
+			linux,input-type = <1>;
+			linux,code = <115>;
+			gpio-key,wakeup;
+			debounce-interval = <15>;
+			linux,can-disable;
+		};
+	};
+
+        usb_otg_switch: usb-otg-switch {
+                compatible = "regulator-fixed";
+                regulator-name = "usb_otg_vreg";
+                vin-supply = <&smbcharger_charger_otg>;
+                enable-active-high;
+                status = "okay";
+        };
+
+        usb3: ssusb@7000000 {
+		extcon = <&qpnp_smbcharger>;
+                /delete-property/ pinctrl-names;
+                /delete-property/ pinctrl-0;
+                /delete-property/ qcom,otg-fault-gpio;
+                mmi,dcp-max-current = <2000>;
+                vbus_dwc3-supply = <&usb_otg_switch>;
+        };
+};
+
+&i2c_1 {
+    status = "okay";
+
+       fusb302@22 {
+            compatible = "fairchild,fusb302";
+            reg = <0x22>;
+            gpios = <&tlmm 9 1>; /* FUSB302_INT_N, in */
+            fusb,gpio-labels = "gpio_fusb_int_n";
+            pinctrl-names = "default", "active";
+            pinctrl-0 = <&fusb302_int_default>;
+            pinctrl-1 = <&fusb302_int_active>;
+        };
+};
+
+&pm8953_typec {
+        status = "disabled";
+};
+
+&blsp1_uart0 {
+        status = "ok";
+        pinctrl-names = "default";
+        pinctrl-0 = <&uart_console_active>;
+};

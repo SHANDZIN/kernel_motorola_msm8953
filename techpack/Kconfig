@@ -10,3 +10,7 @@ config MACH_MOTOROLA_MSM8953
 config MACH_MOTOROLA_SANDERS
 	bool "Motorola Moto G5S Plus (sanders)"
 	depends on MACH_MOTOROLA_MSM8953
+
+config MACH_MOTOROLA_DEEN
+	bool "Motorola Moto One (deen)"
+	depends on MACH_MOTOROLA_MSM8953

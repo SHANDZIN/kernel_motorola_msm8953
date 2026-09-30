@@ -1,0 +1,123 @@
+/* Copyright (c) 2018, Motorola Mobility Inc. All rights reserved.
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2 and
+ * only version 2 as published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ */
+
+/{
+	/delete-node/ qcom,battery-data;
+	mot_batterydata: qcom,battery-data {
+		df-serialnum = "SB18C30735";
+		#include "batterydata/batterydata-je40-scud.dtsi"
+		#include "batterydata/batterydata-je40-atl.dtsi"
+	};
+};
+
+
+&qpnp_smbcharger {
+	/delete-property/ pinctrl-names;
+	/delete-property/ pinctrl-0;
+	/delete-property/ gpios;
+	/delete-property/ gpio-names;
+	/delete-property/ qcom,iterm-ma;
+	qcom,iterm-disabled;
+	/delete-property/ qcom,autoadjust-vfloat;
+	/delete-property/ qcom,dc-psy-type;
+	status = "okay";
+
+	qcom,dc-psy-ma = <900>;
+	qcom,dc-psy-eff-ma = <500>;
+	qcom,fastchg-current-ma = <3000>;
+	qcom,float-voltage-mv = <4400>;
+	qcom,resume-delta-mv = <200>;
+	qcom,chg-inhibit-fg;
+	qcom,rparasitic-uohm = <100000>;
+	qcom,bms-psy-name = "bms";
+	qcom,charge-unknown-battery;
+	qcom,chg-thermal-mitigation = <3000 0>,
+				      <2500 0>,
+				      <2000 0>,
+				      <1500 0>,
+				      <1000 0>,
+				      <500 0>;
+	qcom,dc-thermal-mitigation = <2000>,
+				     <1500>,
+				     <900>,
+				     <600>,
+				     <300>;
+	qcom,thermal-mitigation = <3000 0>,
+				  <2500 0>,
+				  <2000 0>,
+				  <1500 0>,
+				  <1000 0>,
+				  <500 0>,
+				  <300 0>;
+	qcom,hot-temp-c = <60>;
+	qcom,cold-temp-c = <(-20)>;
+	qcom,warm-temp-c = <45>;
+	qcom,cool-temp-c = <0>;
+	qcom,ext-temp-volt-mv = <4200>;
+	qcom,external-typec;
+	qcom,typec-psy-name = "typec";
+	qcom,hotspot-thrs-c = <50>;
+	qcom,charging-timeout-mins = <0>;
+	qcom,precharging-timeout-mins = <0>;
+	qcom,bmd-algo-disabled;
+	qcom,bmd-pin-src = "bpd_none";
+	qcom,usbid-disabled;
+	qcom,force-aicl-rerun;
+	mmi,fake-factory-type;
+	qcom,usbin-vadc = <&pmi8950_vadc>;
+	qcom,dcin-vadc = <&pmi8950_vadc>;
+	qcom,max-usbin-current-ma = <3000>;
+	qcom,step-chg-steps = <4200 3000 2000>,
+				<4400 2000 1600>;
+	qcom,mmi-temp-zones = <0 582 0>,
+				<10 1460 582>,
+				<15 1460 1460>,
+				<45 3000 2000>,
+				<60 1460 0>;
+	qcom,auto-voltage-comp-mv = <150>;
+	qcom,prop-flash-active;
+	qcom,enable-charging-limit;
+	qcom,upper-limit-capacity = <75>;
+	qcom,lower-limit-capacity = <60>;
+	qcom,pd-charger-force-5v;
+	qcom,stepchg-iterm-ma = <146>;
+
+	smbcharger_charger_otg: qcom,smbcharger-boost-otg {
+		status = "okay";
+		regulator-name = "smbcharger_charger_otg";
+	};
+};
+
+&qpnp_fg {
+	/delete-property/ qcom,battery-data;
+	/delete-property/ qcom,capacity-learning-feedback;
+	qcom,warm-bat-decidegc = <450>;
+	qcom,cool-bat-decidegc = <0>;
+	qcom,hot-bat-decidegc = <600>;
+	qcom,cold-bat-decidegc = <(-200)>;
+	qcom,resume-soc = <99>;
+	qcom,bcl-lm-threshold-ma = <126>;
+	qcom,bcl-mh-threshold-ma = <400>;
+	qcom,fg-iterm-ma = <150>;
+	qcom,fg-vbat-estimate-diff-mv = <1000>;
+	qcom,fg-delta-soc = <1>;
+	qcom,fg-max-soc = <100>;
+	qcom,fg-min-soc = <0>;
+	qcom,fg-cc-cv-threshold-mv = <4390>;
+	qcom,thermal-coefficients =  /bits/ 16 <0x2d87 0x9151 0x7d3c>;
+	qcom,irq-volt-empty-mv = <3000>;
+	qcom,fg-cutoff-voltage-mv = <3200>;
+	qcom,battery-data = <&mot_batterydata>;
+	qcom,cl-vbat-est-thr-uv = <300000>;
+	qcom,fg-force-restart-enable;
+};
+

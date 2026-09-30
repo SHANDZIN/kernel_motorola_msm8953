@@ -612,6 +612,8 @@ dtb-$(CONFIG_ARCH_SDM632) += sdm632-rumi.dtb \
 endif
 endif
 
+dts-dirs += motorola
+
 always		:= $(dtb-y)
 subdir-y	:= $(dts-dirs)
 clean-files    := *.dtb *.dtbo
