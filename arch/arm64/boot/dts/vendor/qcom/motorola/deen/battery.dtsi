@@ -63,8 +63,6 @@
 	qcom,warm-temp-c = <45>;
 	qcom,cool-temp-c = <0>;
 	qcom,ext-temp-volt-mv = <4200>;
-	qcom,external-typec;
-	qcom,typec-psy-name = "typec";
 	qcom,hotspot-thrs-c = <50>;
 	qcom,charging-timeout-mins = <0>;
 	qcom,precharging-timeout-mins = <0>;

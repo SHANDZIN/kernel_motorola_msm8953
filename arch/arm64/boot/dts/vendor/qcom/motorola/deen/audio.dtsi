@@ -9,6 +9,11 @@
  * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
  * GNU General Public License for more details.
  */
+
+/ {
+	qcom,enable-legacy-adsp-hacks;
+};
+
 	/delete-node/ &wsa881x_i2c_45;
 	/delete-node/ &wsa881x_i2c_f;
 	/delete-node/ &wsa881x_analog_vi_gpio;

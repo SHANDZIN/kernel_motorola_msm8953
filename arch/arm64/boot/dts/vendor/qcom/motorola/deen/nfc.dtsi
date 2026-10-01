@@ -10,6 +10,8 @@
  * GNU General Public License for more details.
  */
 
+#include <dt-bindings/pinctrl/qcom,pmic-gpio.h>
+
 &soc {
 	i2c_5: i2c@7af5000 { /* BLSP2 QUP1 */
 		status = "okay";
@@ -19,7 +21,7 @@
 		reg-names = "qup_phys_addr";
 		reg = <0x7af5000 0x600>;
 		interrupt-names = "qup_irq";
-		interrupts = <0 299 0>;
+		interrupts = <0 299 IRQ_TYPE_LEVEL_HIGH>;
 		qcom,clk-freq-out = <400000>;
 		qcom,clk-freq-in  = <19200000>;
 		clock-names = "iface_clk", "core_clk";
@@ -34,6 +36,7 @@
 		dmas = <&dma_blsp2 4 64 0x20000020 0x20>,
 		     <&dma_blsp2 5 32 0x20000020 0x20>;
 		dma-names = "tx", "rx";
+		qcom,disable-dma;
 
 		nq:nq@28 {              /* NFC PN553 */
 			compatible = "qcom,nq-nci";
@@ -51,21 +54,19 @@
 			clock-names = "ref_clk";
 			pinctrl-names = "default";
 			pinctrl-0 = <&nfc_irq_default &nfc_ven_default
-					&nfc_firm_default>;
+					&nfc_firm_default &nfc_refclk_default>;
 		};
 	};
 };
 
 &pm8953_gpios {
-	/* GPIO 2 (NFC_CLK_REQ) */
-	gpio@c100 {
-		qcom,mode = <0>;
-		qcom,output-type = <0>;
-		qcom,pull = <0>;
-		qcom,vin-sel = <2>;
-		qcom,out-strength = <3>;
-		qcom,src-sel = <0>;
-		qcom,master-en = <1>;
-		status = "okay";
+	nfc_refclk_default: nfc-refclk-default {
+		pins = "gpio2";
+		function = "normal";
+		output-low;
+		bias-disable;
+		drive-push-pull;
+		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
+		power-source = <2>;
 	};
 };
