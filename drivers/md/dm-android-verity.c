@@ -703,6 +703,14 @@ static int android_verity_ctr(struct dm_target *ti, unsigned argc, char **argv)
 	}
 
 	dev = name_to_dev_t(target_device);
+	if (!dev && argc == 2) {
+		/* Motorola bootloaders pass the block device before the key id. */
+		dev = name_to_dev_t(argv[0]);
+		if (dev) {
+			target_device = argv[0];
+			key_id = argv[1];
+		}
+	}
 	if (!dev) {
 		DMERR("no dev found for %s", target_device);
 		handle_error();
