@@ -17,6 +17,18 @@
 };
 
 &soc {
+	qcom,smp2p-modem@0x0b011008 {
+		status = "disabled";
+	};
+
+	qcom,smp2p-wcnss@0x0b011008 {
+		status = "disabled";
+	};
+
+	qcom,smp2p-adsp@0x0b011008 {
+		status = "disabled";
+	};
+
         qusb_phy: qusb@79000 {
                 qcom,qusb-phy-init-seq = <0xF8 0x80
                                         0x97 0x84
