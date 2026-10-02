@@ -1556,6 +1556,22 @@ static int32_t nvt_ts_probe(struct i2c_client *client,
 		NVT_ERR("register notifier failed!\n");
 		goto err_register_drm_notif_failed;
 	}
+#elif defined(CONFIG_FB)
+	ts->fb_notif.notifier_call = nvt_fb_notifier_callback;
+	ret = fb_register_client(&ts->fb_notif);
+	if (ret) {
+		NVT_ERR("register fb_notifier failed. ret=%d\n", ret);
+		goto err_register_fb_notif_failed;
+	}
+
+	/* Moto panels can start touch without a display blank/unblank cycle. */
+	if (of_property_read_bool(client->dev.of_node, "novatek,probe-on-boot")) {
+		ret = nvt_ts_late_probe(client, id);
+		if (ret) {
+			fb_unregister_client(&ts->fb_notif);
+			return ret;
+		}
+	}
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
 	ts->early_suspend.level = EARLY_SUSPEND_LEVEL_BLANK_SCREEN + 1;
 	ts->early_suspend.suspend = nvt_ts_early_suspend;
@@ -1574,6 +1590,10 @@ static int32_t nvt_ts_probe(struct i2c_client *client,
 	if (active_panel)
 		drm_panel_notifier_unregister(active_panel, &ts->drm_notif);
 err_register_drm_notif_failed:
+
+#elif defined(CONFIG_FB)
+	fb_unregister_client(&ts->fb_notif);
+err_register_fb_notif_failed:
 
 #elif defined(CONFIG_HAS_EARLYSUSPEND)
 	unregister_early_suspend(&ts->early_suspend);
@@ -1801,9 +1821,11 @@ static int32_t nvt_ts_resume(struct device *dev)
 {
 	NVT_LOG("start\n");
 
-	if (bTouchIsAwake || ts->fw_ver == 0) {
-		nvt_ts_late_probe(ts->client, ts->id);
-		NVT_LOG("nvt_ts_late_probe\n");
+	if (!ts->input_dev)
+		return nvt_ts_late_probe(ts->client, ts->id);
+
+	if (bTouchIsAwake) {
+		NVT_LOG("Touch is already resume\n");
 		return 0;
 	}
 

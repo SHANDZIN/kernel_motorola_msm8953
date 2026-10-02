@@ -1364,7 +1364,7 @@ config TOUCHSCREEN_FT5X06
 
 source "drivers/input/touchscreen/focaltech_touch/Kconfig"
 
-#source "drivers/input/touchscreen/nt36xxx/Kconfig"
+source "drivers/input/touchscreen/nt36xxx/Kconfig"
 
 config TOUCHSCREEN_SWEEP2WAKE
         bool "Sweep2Wake for touchscreens"
