@@ -16,7 +16,6 @@
 
 	novatek@62 {
 		compatible = "novatek,NVT-ts";
-		novatek,probe-on-boot;
 		reg = <0x62>;
 		status = "ok";
 		pinctrl-names = "default";
