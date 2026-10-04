@@ -17,6 +17,7 @@
 #include "camera.dtsi"
 #include "display.dtsi"
 #include "fingerprint.dtsi"
+#include "gpu.dtsi"
 #include "misc.dtsi"
 #include "nfc.dtsi"
 #include "pinctrl.dtsi"
