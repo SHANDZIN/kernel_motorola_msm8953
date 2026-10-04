@@ -1,0 +1,44 @@
+// SPDX-License-Identifier: GPL-2.0-only
+
+#include "../../msm8953-oc-gpu.dtsi"
+
+/ {
+	deen_gpu_opp_table: gpu-opp-table {
+		compatible = "operating-points-v2";
+
+		/* Match the active power levels after clk_round_rate(). */
+		opp-133330000 {
+			opp-hz = /bits/ 64 <133330000>;
+		};
+		opp-216000000 {
+			opp-hz = /bits/ 64 <216000000>;
+		};
+		opp-320000000 {
+			opp-hz = /bits/ 64 <320000000>;
+		};
+		opp-400000000 {
+			opp-hz = /bits/ 64 <400000000>;
+		};
+		opp-510000000 {
+			opp-hz = /bits/ 64 <510000000>;
+		};
+		opp-560000000 {
+			opp-hz = /bits/ 64 <560000000>;
+		};
+		opp-650000000 {
+			opp-hz = /bits/ 64 <650000000>;
+		};
+		opp-725000000 {
+			opp-hz = /bits/ 64 <725000000>;
+		};
+	};
+};
+
+&msm_gpu {
+	operating-points-v2 = <&deen_gpu_opp_table>;
+};
+
+/* KGSL indexes the bus monitor's OPPs by GPU frequency. */
+&msm_bus {
+	operating-points-v2 = <&deen_gpu_opp_table>;
+};
