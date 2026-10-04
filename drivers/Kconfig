@@ -232,4 +232,19 @@ source "drivers/sensors/Kconfig"
 source "drivers/gpu/msm/Kconfig"
 
 source "drivers/energy_model/Kconfig"
+
+config KSU_EXTERNAL
+	bool "Build with externally checked-out KSU"
+	depends on ARM64 && SECURITY && SECURITY_SELINUX && INPUT && DEBUG_KERNEL
+	select KALLSYMS
+	select KALLSYMS_ALL
+	default n
+	help
+	  Enable the optional KSU driver prepared by build.sh -ksu.
+	  The external checkout is cached outside the kernel Git tree.
+
+if KSU_EXTERNAL
+# An ordinary checkout must configure without downloading the optional driver.
+source "$(shell,test -f $(srctree)/drivers/kernelsu/Kconfig && echo drivers/kernelsu/Kconfig || echo /dev/null)"
+endif
 endmenu

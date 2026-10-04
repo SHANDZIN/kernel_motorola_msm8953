@@ -28,11 +28,13 @@ fi
 # Flags handling
 ZIP_FLAG=false
 DTBS_FLAG=false
+KSU_FLAG=false
 
 for arg in "$@"; do
     case "$arg" in
         -z)    ZIP_FLAG=true ;;
         -dtbs) DTBS_FLAG=true ;;
+        -ksu) KSU_FLAG=true ;;
         *)
             echo -e "${RED}Error: Unknown option: $arg${NC}"
             exit 1
@@ -43,10 +45,11 @@ done
 # Output usage help
 if [ -z "$DEVICE" ]; then
   echo -e "${RED}Error: No device specified!${NC}"
-  echo -e "Usage: ./build.sh <device_name> [-dtbs] [-z]"
+  echo -e "Usage: ./build.sh <device_name> [-dtbs] [-ksu] [-z]"
   echo -e "Example: ./build.sh device (just compiles)"
   echo -e "Example: ./build.sh device -dtbs (compiles DTBs only)"
   echo -e "Example: ./build.sh device -z (compiles and generates zip)"
+  echo -e "Example: ./build.sh deen -ksu -z (builds with KSU root)"
   exit 1
 fi
 
@@ -74,8 +77,16 @@ anykernel=$HOME/anykernel
 # Set TOOLCHAIN_DIR to reuse an existing Clang 18 installation.
 toolchain_dir="${TOOLCHAIN_DIR:-${kernel_dir}/clang}"
 kernel_name="DeenRev"
+# Pin root code to a tested revision. KSU_REF explicitly requests an update.
+KSU_REV="${KSU_REF:-8770c7e324a22895703c4916b8a16520e0b81c79}"
+ksu_dir="${KSU_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/DeenRev/KSU}"
 
-zip_name="${kernel_name}-${DEVICE}-${TM}.zip"
+
+root_suffix=""
+if [ "$KSU_FLAG" = true ]; then
+    root_suffix="-KSU"
+fi
+zip_name="${kernel_name}-${DEVICE}${root_suffix}-${TM}.zip"
 KERNEL_IMAGE="${objdir}/arch/arm64/boot/Image.gz-dtb"
 
 LOG_FILE="${kernel_dir}/build_log.txt"
@@ -150,14 +161,88 @@ clean_all() {
     rm -rf "${objdir}" "$LOG_FILE" *.zip
 }
 
+setup_ksu() {
+    local required="$KSU_FLAG"
+    local revision
+    # DTBs-only mode may reuse a previous root-enabled configuration.
+    if [ "$DTBS_FLAG" = true ] && [ -f "${objdir}/.config" ] &&
+       grep -q '^CONFIG_KSU=y$' "${objdir}/.config"; then
+        required=true
+    fi
+    [ "$required" = true ] || return 0
+
+    if [ -e "${kernel_dir}/drivers/kernelsu" ] &&
+       [ ! -L "${kernel_dir}/drivers/kernelsu" ]; then
+        echo -e "${RED}Error: drivers/kernelsu is not a symlink. Move it aside first.${NC}"
+        exit 1
+    fi
+    if [ ! -d "$ksu_dir/.git" ]; then
+        if [ -e "$ksu_dir" ]; then
+            echo -e "${RED}Error: $ksu_dir exists and is not a KSU checkout.${NC}"
+            exit 1
+        fi
+        mkdir -p "$(dirname -- "$ksu_dir")" || exit "$?"
+        git clone https://github.com/Baka-SU/BakaSU.git "$ksu_dir" || exit "$?"
+    fi
+    if [ -n "$(git -C "$ksu_dir" status --porcelain)" ]; then
+        echo -e "${RED}Error: KSU checkout has local changes; preserve them before changing revisions.${NC}"
+        exit 1
+    fi
+    if [ -n "${KSU_REF:-}" ]; then
+        # Updating is explicit; default builds reuse the pinned cached commit.
+        git -C "$ksu_dir" fetch origin "$KSU_REV" || exit "$?"
+        revision=$(git -C "$ksu_dir" rev-parse --verify 'FETCH_HEAD^{commit}') || exit "$?"
+    elif ! revision=$(git -C "$ksu_dir" rev-parse --verify "${KSU_REV}^{commit}" 2>/dev/null); then
+        git -C "$ksu_dir" fetch origin "$KSU_REV" || exit "$?"
+        revision=$(git -C "$ksu_dir" rev-parse --verify 'FETCH_HEAD^{commit}') || exit "$?"
+    fi
+    git -C "$ksu_dir" checkout --quiet --detach "$revision" || exit "$?"
+    if [ ! -f "$ksu_dir/kernel/Kconfig" ] ||
+       [ ! -f "$ksu_dir/kernel/Kbuild" ]; then
+        echo -e "${RED}Error: Selected revision does not contain the KSU kernel driver.${NC}"
+        exit 1
+    fi
+    ln -sfn "$ksu_dir/kernel" "${kernel_dir}/drivers/kernelsu" || exit "$?"
+    echo -e "${LGR}KSU: $revision (cache: $ksu_dir)${NC}"
+}
+
+configure_ksu() {
+    local config="${objdir}/.config"
+    local option
+    if [ "$KSU_FLAG" = true ]; then
+        echo -e "${YLW}Enabling KSU (manual hooks, built-in)...${NC}"
+        "${kernel_dir}/scripts/config" --file "$config" \
+            -e KSU_EXTERNAL -e KSU -e KSU_MANUAL_HOOK -d KSU_TRACEPOINT_HOOK -d KSU_SUSFS \
+            -e KSU_MANUAL_HOOK_AUTO_SETUID_HOOK \
+            -e KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
+            -e KSU_MANUAL_HOOK_AUTO_INPUT_HOOK || exit "$?"
+    else
+        "${kernel_dir}/scripts/config" --file "$config" -d KSU_EXTERNAL -d KSU || exit "$?"
+    fi
+    make -s "${MAKE_ARGS[@]}" olddefconfig || exit "$?"
+    if [ "$KSU_FLAG" = true ]; then
+        for option in KSU_EXTERNAL KSU KSU_MANUAL_HOOK KALLSYMS_ALL \
+                      KSU_MANUAL_HOOK_AUTO_SETUID_HOOK \
+                      KSU_MANUAL_HOOK_AUTO_INITRC_HOOK \
+                      KSU_MANUAL_HOOK_AUTO_INPUT_HOOK; do
+            if ! grep -qx "CONFIG_${option}=y" "$config"; then
+                echo -e "${RED}Error: CONFIG_${option} was not enabled. Check kernel dependencies.${NC}"
+                exit 1
+            fi
+        done
+    elif grep -q '^CONFIG_KSU=[ym]$' "$config"; then
+        echo -e "${RED}Error: KSU is enabled without -ksu.${NC}"
+        exit 1
+    fi
+}
+
 make_defconfig() {
     SECONDS=0
     echo -e "${LGR}########### Generating Defconfig ############${NC}"
 
     # Generates the base defconfig using the same LLVM tools as the build.
     make -s "${MAKE_ARGS[@]}" "$CONFIG_FILE" || exit "$?"
-
-
+    configure_ksu
 }
 
 compile_headers() {
@@ -263,6 +348,7 @@ completion() {
 # Execution
 check_deps
 setup_toolchain
+setup_ksu
 
 DO_UPLOAD=false
 COMPILE_HDR=false
@@ -304,7 +390,15 @@ SECONDS=0
 if [ "$DTBS_FLAG" = true ]; then
     if [ -f "${objdir}/.config" ]; then
         echo -e "${YLW}Reusing the existing configuration in: ${objdir}${NC}"
-        make -s "${MAKE_ARGS[@]}" olddefconfig || exit "$?"
+        # Preserve the previous root choice unless explicitly enabling it.
+        if [ "$KSU_FLAG" = true ]; then
+            configure_ksu
+        else
+            if grep -q '^CONFIG_KSU=y$' "${objdir}/.config"; then
+                "${kernel_dir}/scripts/config" --file "${objdir}/.config" -e KSU_EXTERNAL || exit "$?"
+            fi
+            make -s "${MAKE_ARGS[@]}" olddefconfig || exit "$?"
+        fi
     else
         make_defconfig
     fi
