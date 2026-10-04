@@ -144,3 +144,6 @@ Android.bp
 /out/
 /clang/
 *.zip
+
+# Optional externally cached KSU driver link
+/drivers/kernelsu

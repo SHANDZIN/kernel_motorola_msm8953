@@ -1895,12 +1895,36 @@ out_ret:
 	return retval;
 }
 
+#ifdef CONFIG_KSU_MANUAL_HOOK
+extern int ksu_handle_execveat(int *fd, struct filename **filename_ptr,
+                             void *argv, void *envp, int *flags);
+extern int ksu_handle_post_execveat(int *fd, struct filename **filename_ptr,
+                                  void *argv, void *envp, int *flags,
+                                  int *retval);
+#endif
+
 static int do_execveat_common(int fd, struct filename *filename,
 			      struct user_arg_ptr argv,
 			      struct user_arg_ptr envp,
 			      int flags)
 {
+#ifdef CONFIG_KSU_MANUAL_HOOK
+	struct filename *ksu_filename;
+	int retval;
+
+	ksu_handle_execveat(&fd, &filename, &argv, &envp, &flags);
+	ksu_filename = filename;
+	/* __do_execve_file() drops its reference before the post-exec hook. */
+	if (!IS_ERR_OR_NULL(ksu_filename))
+		ksu_filename->refcnt++;
+	retval = __do_execve_file(fd, filename, argv, envp, flags, NULL);
+	ksu_handle_post_execveat(&fd, &filename, &argv, &envp, &flags, &retval);
+	if (!IS_ERR_OR_NULL(ksu_filename))
+		putname(ksu_filename);
+	return retval;
+#else
 	return __do_execve_file(fd, filename, argv, envp, flags, NULL);
+#endif
 }
 
 int do_execve_file(struct file *file, void *__argv, void *__envp)
