@@ -26,6 +26,10 @@
 #include <linux/reset.h>
 #include <linux/power_supply.h>
 
+static bool bc12_debug;
+module_param(bc12_debug, bool, 0644);
+MODULE_PARM_DESC(bc12_debug, "Trace PHY ownership during BC1.2 detection");
+
 #define QUSB2PHY_PLL_PWR_CTL		0x18
 #define REF_BUF_EN			BIT(0)
 #define REXT_EN				BIT(1)
@@ -988,6 +992,11 @@ static int qusb_phy_dpdm_regulator_enable(struct regulator_dev *rdev)
 	}
 
 	mutex_lock(&qphy->phy_lock);
+	if (bc12_debug)
+		dev_info(qphy->phy.dev,
+			 "%s: dpdm=%d connected=%d suspended=%d high_z=%d\n",
+			 __func__, qphy->dpdm_enable, qphy->cable_connected,
+			 qphy->suspended, qphy->put_into_high_z_state);
 	if (!qphy->dpdm_enable) {
 		ret = qusb_phy_enable_power(qphy, true);
 		if (ret < 0) {
@@ -1047,6 +1056,11 @@ static int qusb_phy_dpdm_regulator_disable(struct regulator_dev *rdev)
 				__func__, qphy->dpdm_enable);
 
 	mutex_lock(&qphy->phy_lock);
+	if (bc12_debug)
+		dev_info(qphy->phy.dev,
+			 "%s: dpdm=%d connected=%d suspended=%d high_z=%d\n",
+			 __func__, qphy->dpdm_enable, qphy->cable_connected,
+			 qphy->suspended, qphy->put_into_high_z_state);
 	if (qphy->dpdm_enable) {
 		/* If usb core is active, rely on set_suspend to clamp phy */
 		if (!qphy->cable_connected)

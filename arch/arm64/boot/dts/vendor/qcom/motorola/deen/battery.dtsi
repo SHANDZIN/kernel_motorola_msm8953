@@ -39,6 +39,7 @@
 	qcom,chg-inhibit-fg;
 	qcom,rparasitic-uohm = <100000>;
 	qcom,bms-psy-name = "bms";
+	mmi,usbc-psy-name = "usbc";
 	qcom,charge-unknown-battery;
 	qcom,chg-thermal-mitigation = <3000 0>,
 				      <2500 0>,
@@ -74,8 +75,10 @@
 	qcom,usbin-vadc = <&pmi8950_vadc>;
 	qcom,dcin-vadc = <&pmi8950_vadc>;
 	qcom,max-usbin-current-ma = <3000>;
-	qcom,step-chg-steps = <4200 3000 2000>,
-				<4400 2000 1600>;
+	/delete-property/ qcom,step-chg-steps;
+	qcom,stepchg-voltage-mv = <4200>;
+	qcom,stepchg-current-ma = <2000>;
+	qcom,stepchg-taper-ma = <1600>;
 	qcom,mmi-temp-zones = <0 582 0>,
 				<10 1460 582>,
 				<15 1460 1460>,

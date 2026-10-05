@@ -317,6 +317,10 @@ struct smbchg_chip {
 	struct power_supply		*dc_psy;
 	struct power_supply		*bms_psy;
 	struct power_supply		*typec_psy;
+	const char			*usbc_psy_name;
+	int				usbc_current_ma;
+	int				sdp_current_ma;
+	bool				sdp_apsd_rerun_done;
 	int				dc_psy_type;
 	const char			*bms_psy_name;
 	const char			*battery_psy_name;
@@ -327,6 +331,7 @@ struct smbchg_chip {
 	struct work_struct		usb_set_online_work;
 	struct delayed_work		vfloat_adjust_work;
 	struct delayed_work		hvdcp_det_work;
+	struct delayed_work		sdp_detect_work;
 	struct delayed_work		heartbeat_work;
 	spinlock_t			sec_access_lock;
 	struct mutex			therm_lvl_lock;
@@ -409,6 +414,7 @@ enum wake_reason {
 	PM_PARALLEL_TAPER = BIT(3),
 	PM_DETECT_HVDCP = BIT(4),
 	PM_HEARTBEAT = BIT(5),
+	PM_DETECT_SDP = BIT(6),
 };
 
 /*
@@ -1841,6 +1847,21 @@ static int smbchg_set_usb_current_max(struct smbchg_chip *chip,
 
 	switch (chip->usb_supply_type) {
 	case POWER_SUPPLY_TYPE_USB:
+		/* BC1.2 may report SDP for a source advertising Type-C current. */
+		if (chip->usbc_psy_name) {
+			rc = smbchg_masked_write(chip,
+					chip->usb_chgpth_base + CMD_IL,
+					ICL_OVERRIDE_BIT,
+					chip->usbc_current_ma > 500 ?
+					ICL_OVERRIDE_BIT : 0);
+			if (rc < 0)
+				goto out;
+			if (chip->usbc_current_ma > 500 &&
+			    current_ma >= CURRENT_150_MA) {
+				rc = smbchg_set_high_usb_chg_current(chip, current_ma);
+				break;
+			}
+		}
 		if ((current_ma < CURRENT_150_MA) &&
 				(chip->wa_flags & SMBCHG_USB100_WA))
 			current_ma = CURRENT_150_MA;
@@ -3773,6 +3794,8 @@ static void check_battery_type(struct smbchg_chip *chip)
 	}
 }
 
+static void smbchg_update_usbc_current(struct smbchg_chip *chip);
+
 static void smbchg_external_power_changed(struct power_supply *psy)
 {
 	struct smbchg_chip *chip = power_supply_get_drvdata(psy);
@@ -3794,6 +3817,8 @@ static void smbchg_external_power_changed(struct power_supply *psy)
 				"Couldn't update charger configuration rc=%d\n",
 									rc);
 	}
+
+	smbchg_update_usbc_current(chip);
 
 	/* adjust vfloat */
 	smbchg_vfloat_adjust_check(chip);
@@ -4495,10 +4520,15 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 	 * modes, skip all BC 1.2 current if external typec is supported.
 	 * Note: for SDP supporting current based on USB notifications.
 	 */
-	if (chip->typec_psy && (type != POWER_SUPPLY_TYPE_USB))
+	if (chip->usbc_current_ma > 500 &&
+	    (type == POWER_SUPPLY_TYPE_USB || type == POWER_SUPPLY_TYPE_USB_CDP ||
+	     type == POWER_SUPPLY_TYPE_USB_DCP))
+		current_limit_ma = chip->usbc_current_ma;
+	else if (chip->typec_psy && (type != POWER_SUPPLY_TYPE_USB))
 		current_limit_ma = chip->typec_current_ma;
 	else if (type == POWER_SUPPLY_TYPE_USB)
-		current_limit_ma = DEFAULT_SDP_MA;
+		current_limit_ma = chip->usbc_psy_name ? chip->sdp_current_ma :
+				   DEFAULT_SDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB_CDP)
 		current_limit_ma = DEFAULT_CDP_MA;
 	else if (type == POWER_SUPPLY_TYPE_USB_HVDCP)
@@ -4548,6 +4578,41 @@ static int smbchg_change_usb_supply_type(struct smbchg_chip *chip,
 
 out:
 	return rc;
+}
+
+static void smbchg_update_usbc_current(struct smbchg_chip *chip)
+{
+	struct power_supply *psy;
+	union power_supply_propval val;
+	int current_ma = 0;
+
+	if (!chip->usbc_psy_name)
+		return;
+
+	/* Keep the supplier optional to avoid deferring charger probing. */
+	psy = power_supply_get_by_name(chip->usbc_psy_name);
+	if (psy) {
+		if (!power_supply_get_property(psy, POWER_SUPPLY_PROP_ONLINE,
+					       &val) && val.intval &&
+		    !power_supply_get_property(psy, POWER_SUPPLY_PROP_CURRENT_MAX,
+					       &val) && val.intval > 0)
+			current_ma = min(val.intval / 1000,
+				chip->tables.usb_ilim_ma_table[
+					chip->tables.usb_ilim_ma_len - 1]);
+		power_supply_put(psy);
+	}
+
+	mutex_lock(&chip->usb_status_lock);
+	if (!chip->usb_present)
+		current_ma = 0;
+
+	if (current_ma != chip->usbc_current_ma) {
+		chip->usbc_current_ma = current_ma;
+		dev_info(chip->dev, "USB-C source current: %d mA\n", current_ma);
+		if (chip->usb_present)
+			smbchg_change_usb_supply_type(chip, chip->usb_supply_type);
+	}
+	mutex_unlock(&chip->usb_status_lock);
 }
 
 #define HVDCP_ADAPTER_SEL_MASK	SMB_MASK(5, 4)
@@ -4744,12 +4809,17 @@ static void handle_usb_removal(struct smbchg_chip *chip)
 
 	pr_smb(PR_STATUS, "triggered\n");
 	smbchg_aicl_deglitch_wa_check(chip);
+	cancel_delayed_work(&chip->sdp_detect_work);
+	chip->sdp_apsd_rerun_done = false;
+	smbchg_relax(chip, PM_DETECT_SDP);
 	/* MMI: removal clears one-shot APSD/HVDCP retry state */
 	chip->apsd_rerun_cnt = 0;
 	chip->apsd_rerun_at_boot = false;
 	/* Clear the OV detected status set before */
 	if (chip->usb_ov_det)
 		chip->usb_ov_det = false;
+	chip->usbc_current_ma = 0;
+	chip->sdp_current_ma = DEFAULT_SDP_MA;
 	/* Clear typec current status */
 	if (chip->typec_psy)
 		chip->typec_current_ma = 0;
@@ -4824,6 +4894,14 @@ static void handle_usb_insertion(struct smbchg_chip *chip)
 	if (chip->typec_psy)
 		update_typec_status(chip);
 	smbchg_change_usb_supply_type(chip, usb_supply_type);
+
+	if (chip->usbc_psy_name && !chip->factory_mode &&
+	    usb_supply_type == POWER_SUPPLY_TYPE_USB &&
+	    !chip->sdp_apsd_rerun_done) {
+		smbchg_stay_awake(chip, PM_DETECT_SDP);
+		mod_delayed_work(system_wq, &chip->sdp_detect_work,
+				 msecs_to_jiffies(5000));
+	}
 
 	/* Only notify USB if it's not a charger */
 	if (usb_supply_type == POWER_SUPPLY_TYPE_USB ||
@@ -5485,6 +5563,141 @@ out:
 	return rc;
 }
 
+/* Toggle input acceptance, not source voltage, to restart BC1.2. */
+static int smbchg_rerun_apsd_mmi(struct smbchg_chip *chip)
+{
+	int rc, restore_rc;
+	u8 allowance;
+
+	rc = smbchg_read(chip, &allowance,
+			 chip->usb_chgpth_base + USBIN_CHGR_CFG, 1);
+	if (rc)
+		return rc;
+
+	chip->hvdcp_3_det_ignore_uv = true;
+	reinit_completion(&chip->usbin_uv_lowered);
+	reinit_completion(&chip->src_det_raised);
+
+	rc = smbchg_sec_masked_write(chip,
+				chip->usb_chgpth_base + USBIN_CHGR_CFG,
+				ADAPTER_ALLOWANCE_MASK, USBIN_ADAPTER_9V);
+	if (rc)
+		goto restore;
+
+	usleep_range(10000, 11000);
+	rc = smbchg_sec_masked_write(chip,
+				chip->usb_chgpth_base + USBIN_CHGR_CFG,
+				ADAPTER_ALLOWANCE_MASK,
+				USBIN_ADAPTER_5V_9V_CONT);
+	if (rc)
+		goto restore;
+
+	rc = wait_for_usbin_uv(chip, false);
+	if (rc)
+		goto restore;
+	rc = wait_for_src_detect(chip, true);
+	if (rc)
+		goto restore;
+	goto out;
+
+restore:
+	restore_rc = smbchg_sec_masked_write(chip,
+				chip->usb_chgpth_base + USBIN_CHGR_CFG,
+				ADAPTER_ALLOWANCE_MASK,
+				allowance & ADAPTER_ALLOWANCE_MASK);
+	if (restore_rc)
+		dev_err(chip->dev, "Couldn't restore USB allowance rc=%d\n",
+			restore_rc);
+out:
+	chip->hvdcp_3_det_ignore_uv = false;
+	return rc;
+}
+
+static void smbchg_sdp_detect_work(struct work_struct *work)
+{
+	struct smbchg_chip *chip = container_of(work, struct smbchg_chip,
+					      sdp_detect_work.work);
+	int rc, sdp_current_ma;
+	u8 apsd_cfg;
+
+	mutex_lock(&chip->usb_status_lock);
+	if (!chip->usb_present || !is_usb_present(chip) ||
+	    chip->factory_mode || !get_prop_batt_present(chip) ||
+	    chip->usb_supply_type != POWER_SUPPLY_TYPE_USB ||
+	    chip->usbc_current_ma > 500 || chip->sdp_current_ma >= 500 ||
+	    chip->sdp_apsd_rerun_done)
+		goto out;
+
+	/* Require a confirmed sink connection. */
+	if (chip->usbc_current_ma <= 0)
+		goto out;
+
+	chip->sdp_apsd_rerun_done = true;
+	rc = smbchg_read(chip, &apsd_cfg,
+			 chip->usb_chgpth_base + APSD_CFG, 1);
+	if (rc) {
+		dev_err(chip->dev, "Couldn't read APSD config rc=%d\n", rc);
+		goto out;
+	}
+	dev_info(chip->dev,
+		 "Unconfigured SDP: MMI BC1.2 reset (config=0x%02x)\n",
+		 apsd_cfg);
+
+	sdp_current_ma = chip->sdp_current_ma;
+	extcon_set_state_sync(chip->extcon, EXTCON_USB, false);
+	/* Let the data controller suspend before resetting the PHY. */
+	msleep(100);
+	if (!is_usb_present(chip))
+		goto publish;
+
+	/* BC1.2 needs an active input; restore SDP limits after detection. */
+	rc = vote(chip->usb_icl_votable, PSY_ICL_VOTER, true,
+		  DEFAULT_SDP_MA);
+	if (rc) {
+		dev_err(chip->dev, "Couldn't prepare BC1.2 input rc=%d\n", rc);
+		goto publish;
+	}
+	dev_info(chip->dev, "BC1.2 retry: input=%d mA suspend=%d\n",
+		 chip->usb_max_current_ma,
+		 get_effective_result(chip->usb_suspend_votable));
+
+	rc = smbchg_request_dpdm(chip, false);
+	if (!rc)
+		rc = smbchg_request_dpdm(chip, true);
+	if (!rc)
+		rc = smbchg_sec_masked_write(chip,
+					chip->usb_chgpth_base + APSD_CFG,
+					AUTO_SRC_DETECT_EN_BIT,
+					AUTO_SRC_DETECT_EN_BIT);
+	if (!rc)
+		rc = smbchg_rerun_apsd_mmi(chip);
+	if (rc) {
+		dev_err(chip->dev, "SDP APSD retry failed rc=%d\n", rc);
+		if (is_usb_present(chip)) {
+			rc = smbchg_request_dpdm(chip, true);
+			if (rc)
+				dev_err(chip->dev,
+					"Couldn't restore DP/DM rc=%d\n", rc);
+		}
+	}
+
+publish:
+	/* Restore SDP limits before publishing the detection result. */
+	chip->sdp_current_ma = sdp_current_ma;
+	chip->usb_present = is_usb_present(chip);
+	if (chip->usb_present) {
+		handle_usb_insertion(chip);
+		dev_info(chip->dev, "MMI BC1.2 reset result: supply type=%d\n",
+			 chip->usb_supply_type);
+	} else {
+		handle_usb_removal(chip);
+	}
+
+out:
+	mutex_unlock(&chip->usb_status_lock);
+	smbchg_relax(chip, PM_DETECT_SDP);
+}
+
 #define SCHG_LITE_USBIN_HVDCP_5_9V		0x8
 #define SCHG_LITE_USBIN_HVDCP_5_9V_SEL_MASK	0x38
 #define SCHG_LITE_USBIN_HVDCP_SEL_IDLE		BIT(3)
@@ -5819,13 +6032,16 @@ static void update_typec_otg_status(struct smbchg_chip *chip, int mode,
 static int smbchg_set_sdp_current(struct smbchg_chip *chip, int current_ma)
 {
 	if (chip->usb_supply_type == POWER_SUPPLY_TYPE_USB) {
+		chip->sdp_current_ma = current_ma;
+		if (chip->usbc_current_ma > 500)
+			current_ma = chip->usbc_current_ma;
 		/* Override if type-c charger used */
 		if (chip->typec_current_ma > 500 &&
 				current_ma < chip->typec_current_ma) {
 			current_ma = chip->typec_current_ma;
 		}
 		pr_smb(PR_MISC, "from USB current_ma = %d\n", current_ma);
-		vote(chip->usb_icl_votable, PSY_ICL_VOTER, true, current_ma);
+		return vote(chip->usb_icl_votable, PSY_ICL_VOTER, true, current_ma);
 	}
 
 	return 0;
@@ -5879,7 +6095,7 @@ static int smbchg_usb_set_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CURRENT_MAX:
 	case POWER_SUPPLY_PROP_SDP_CURRENT_MAX:
-		smbchg_set_sdp_current(chip, val->intval / 1000);
+		return smbchg_set_sdp_current(chip, val->intval / 1000);
 	default:
 		return -EINVAL;
 	}
@@ -9226,6 +9442,7 @@ static int smbchg_probe(struct platform_device *pdev)
 			smbchg_parallel_usb_en_work);
 	INIT_DELAYED_WORK(&chip->vfloat_adjust_work, smbchg_vfloat_adjust_work);
 	INIT_DELAYED_WORK(&chip->hvdcp_det_work, smbchg_hvdcp_det_work);
+	INIT_DELAYED_WORK(&chip->sdp_detect_work, smbchg_sdp_detect_work);
 	INIT_DELAYED_WORK(&chip->heartbeat_work,
 			  smbchg_heartbeat_work);
 	init_completion(&chip->src_det_lowered);
@@ -9236,6 +9453,9 @@ static int smbchg_probe(struct platform_device *pdev)
 	chip->dev = &pdev->dev;
 
 	chip->typec_psy = typec_psy;
+	chip->sdp_current_ma = DEFAULT_SDP_MA;
+	of_property_read_string(pdev->dev.of_node, "mmi,usbc-psy-name",
+				&chip->usbc_psy_name);
 	chip->fake_battery_soc = -EINVAL;
 	chip->usb_online = -EINVAL;
 	/* MMI policy state */
@@ -9463,6 +9683,7 @@ unregister_led_class:
 		led_classdev_unregister(&chip->led_cdev);
 remove_sysfs:
 out:
+	cancel_delayed_work_sync(&chip->sdp_detect_work);
 	/* safe even if the files were never created */
 	device_remove_file(chip->dev, &dev_attr_force_demo_mode);
 	device_remove_file(chip->dev, &dev_attr_factory_image_mode);
@@ -9497,6 +9718,8 @@ static int smbchg_remove(struct platform_device *pdev)
 {
 	struct smbchg_chip *chip = dev_get_drvdata(&pdev->dev);
 
+	cancel_delayed_work_sync(&chip->sdp_detect_work);
+	smbchg_relax(chip, PM_DETECT_SDP);
 	cancel_delayed_work_sync(&chip->heartbeat_work);
 	device_remove_file(chip->dev, &dev_attr_force_demo_mode);
 	device_remove_file(chip->dev, &dev_attr_factory_image_mode);
@@ -9521,6 +9744,9 @@ static void smbchg_shutdown(struct platform_device *pdev)
 {
 	struct smbchg_chip *chip = dev_get_drvdata(&pdev->dev);
 	int rc;
+
+	cancel_delayed_work_sync(&chip->sdp_detect_work);
+	smbchg_relax(chip, PM_DETECT_SDP);
 
 	if (!(chip->wa_flags & SMBCHG_RESTART_WA))
 		return;
