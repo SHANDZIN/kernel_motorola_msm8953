@@ -17,6 +17,10 @@
 };
 
 &soc {
+	qcom,msm-gladiator@b1c0000 {
+		interrupts = <0 22 IRQ_TYPE_LEVEL_HIGH>;
+	};
+
 	qcom,smp2p-modem@0x0b011008 {
 		status = "disabled";
 	};
