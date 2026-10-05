@@ -9,6 +9,7 @@
 #include <linux/err.h>
 #include <linux/iio/iio.h>
 #include <linux/interrupt.h>
+#include <linux/jiffies.h>
 #include <linux/kernel.h>
 #include <linux/math64.h>
 #include <linux/module.h>
@@ -329,7 +330,8 @@ static int vadc_do_conversion(struct vadc_priv *vadc,
 	if (vadc->poll_eoc) {
 		ret = vadc_poll_wait_eoc(vadc, timeout);
 	} else {
-		ret = wait_for_completion_timeout(&vadc->complete, timeout);
+		ret = wait_for_completion_timeout(&vadc->complete,
+						 usecs_to_jiffies(timeout));
 		if (!ret) {
 			ret = -ETIMEDOUT;
 			goto err_disable;
