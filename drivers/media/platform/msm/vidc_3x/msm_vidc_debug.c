@@ -13,6 +13,7 @@
  */
 
 #define CREATE_TRACE_POINTS
+#include <linux/atomic.h>
 #include "msm_vidc_common.h"
 #define MAX_SSR_STRING_LEN 10
 #include "msm_vidc_debug.h"
@@ -34,6 +35,8 @@ bool msm_vidc_bitrate_clock_scaling = true;
 bool msm_vidc_debug_timeout = true;
 
 #define MAX_DBG_BUF_SIZE 4096
+
+static atomic_t debugfs_inst_id = ATOMIC_INIT(0);
 
 #define DYNAMIC_BUF_OWNER(__binfo) ({ \
 	atomic_read(&__binfo->ref_count) == 2 ? "video driver" : "firmware";\
@@ -430,11 +433,12 @@ struct dentry *msm_vidc_debugfs_init_inst(struct msm_vidc_inst *inst,
 	char debugfs_name[MAX_DEBUGFS_NAME];
 	struct core_inst_pair *idata = NULL;
 
-	if (!inst) {
+	if (!inst || IS_ERR_OR_NULL(parent)) {
 		dprintk(VIDC_ERR, "Invalid params, inst: %pK\n", inst);
 		goto exit;
 	}
-	snprintf(debugfs_name, MAX_DEBUGFS_NAME, "inst_%pK", inst);
+	snprintf(debugfs_name, MAX_DEBUGFS_NAME, "inst_%u",
+		(unsigned int)atomic_inc_return(&debugfs_inst_id));
 
 	idata = kzalloc(sizeof(struct core_inst_pair), GFP_KERNEL);
 	if (!idata) {
@@ -446,14 +450,15 @@ struct dentry *msm_vidc_debugfs_init_inst(struct msm_vidc_inst *inst,
 	idata->inst = inst;
 
 	dir = debugfs_create_dir(debugfs_name, parent);
-	if (!dir) {
+	if (IS_ERR_OR_NULL(dir)) {
+		dir = NULL;
 		dprintk(VIDC_ERR, "Failed to create debugfs for msm_vidc\n");
 		goto failed_create_dir;
 	}
 
 	info = debugfs_create_file("info", 0444, dir,
 			idata, &inst_info_fops);
-	if (!info) {
+	if (IS_ERR_OR_NULL(info)) {
 		dprintk(VIDC_ERR, "debugfs_create_file: fail\n");
 		goto failed_create_file;
 	}
