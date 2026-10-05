@@ -32,6 +32,14 @@ Parent node required properties:
 
 
 
+Parent node optional properties for the MMI Lite driver:
+- mmi,usbc-psy-name: Name of the external USB-C power supply reporting its sink
+                    current through CURRENT_MAX (microamps) and ONLINE. The
+                    supplier must notify the battery when its state changes.
+                    Currents above 500 mA override BC1.2/SDP current selection,
+                    subject to the PMIC input-current table and other ICL votes.
+                    An absent supplier does not defer charger probing.
+
 Sub node required properties:
 - reg:			The SPMI address for this peripheral
 - interrupts:		Specifies the interrupt associated with the peripheral.

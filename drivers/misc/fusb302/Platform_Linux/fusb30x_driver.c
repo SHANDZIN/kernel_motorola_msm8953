@@ -65,6 +65,8 @@ static enum dual_role_property fusb_drp_properties[] = {
 	DUAL_ROLE_PROP_DR,
 };
 
+static char *usbc_supplied_to[] = { "battery" };
+
 static struct power_supply_desc usbc_psy_desc = {
 	.name = "usbc",
 	.type = POWER_SUPPLY_TYPE_USB_TYPE_C,
@@ -164,6 +166,10 @@ static int fusb30x_probe(struct i2c_client *client,
 	int ret = 0;
 	struct fusb30x_chip *chip;
 	struct i2c_adapter *adapter;
+	struct power_supply_config psy_cfg = {
+		.supplied_to = usbc_supplied_to,
+		.num_supplicants = ARRAY_SIZE(usbc_supplied_to),
+	};
 	struct dual_role_phy_desc *desc;
 	struct dual_role_phy_instance *dual_role;
 	USBTypeCPort PortType;
@@ -241,7 +247,7 @@ static int fusb30x_probe(struct i2c_client *client,
 	}
 	FUSB_LOG("FUSB  %s - Device check passed!\n", __func__);
 	usbc_psy_ptr = power_supply_register(&client->dev,
-					     &usbc_psy_desc, NULL);
+					     &usbc_psy_desc, &psy_cfg);
 	if (IS_ERR(usbc_psy_ptr)) {
 		ret = PTR_ERR(usbc_psy_ptr);
 		usbc_psy_ptr = NULL;
