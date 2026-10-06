@@ -233,6 +233,14 @@ config USB_ULPI
 	  Enable this to support ULPI connected USB OTG transceivers which
 	  are likely found on embedded boards.
 
+config DUAL_ROLE_USB_INTF
+	bool "Generic DUAL ROLE sysfs interface"
+	depends on SYSFS && USB_PHY
+	help
+	  A generic sysfs interface to track and change the state of
+	  dual role USB PHYs. Drivers can register to expose their port
+	  capabilities and current roles to userspace.
+
 config USB_ULPI_VIEWPORT
 	bool
 	help
