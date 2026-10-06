@@ -280,9 +280,6 @@ enum navi_event {
 	NAVI_EVENT_RIGHT,
 	NAVI_EVENT_LEFT
 };
-#if ENABLE_TRANSLATED_LONG_TOUCH
-static struct timer_list long_touch_timer;
-#endif
 static bool g_KeyEventRaised = true;
 static unsigned long g_DoubleClickJiffies;
 static unsigned long g_SingleClickJiffies;
@@ -338,9 +335,9 @@ static void send_key_event(struct etspi_data *etspi, unsigned int code, int valu
 }
 
 #if ENABLE_TRANSLATED_LONG_TOUCH
-static void long_touch_handler(unsigned long arg)
+static void long_touch_handler(struct timer_list *timer)
 {
-	struct etspi_data *etspi = (struct etspi_data *)arg;
+	struct etspi_data *etspi = from_timer(etspi, timer, long_touch_timer);
 
 	if (g_KeyEventRaised == false) {
 		g_KeyEventRaised = true;
@@ -363,7 +360,7 @@ void translated_command_converter(char cmd, struct etspi_data *etspi)
 		g_SingleClickJiffies = 0;
 		g_SingleClick = 0;
 #if ENABLE_TRANSLATED_LONG_TOUCH
-		del_timer(&long_touch_timer);
+		del_timer(&etspi->long_touch_timer);
 #endif
 		break;
 
@@ -377,8 +374,7 @@ void translated_command_converter(char cmd, struct etspi_data *etspi)
 		send_key_event(etspi, KEYEVENT_ON, KEYEVENT_ON_ACTION);
 #endif
 #if ENABLE_TRANSLATED_LONG_TOUCH
-		long_touch_timer.data = (unsigned long)etspi;
-		mod_timer(&long_touch_timer, jiffies + (HZ * LONGTOUCH_INTERVAL / 1000));
+		mod_timer(&etspi->long_touch_timer, jiffies + (HZ * LONGTOUCH_INTERVAL / 1000));
 #endif
 		break;
 
@@ -423,7 +419,7 @@ void translated_command_converter(char cmd, struct etspi_data *etspi)
 		}
 #endif
 #if ENABLE_TRANSLATED_LONG_TOUCH
-		del_timer(&long_touch_timer);
+		del_timer(&etspi->long_touch_timer);
 #endif
 		break;
 
@@ -568,18 +564,10 @@ static ssize_t navigation_event_func(struct device *dev,
 {
 	struct etspi_data *etspi = dev_get_drvdata(dev);
 	struct navi_cmd_struct *tempcmd;
-	DEBUG_PRINT("Egis navigation driver, %s echo :'%d'\n", __func__, *buf);
-
-	if (etspi) {
-		dev_dbg(&etspi->spi->dev, "%s spi_show\n", __func__);
-		if (etspi->spi) {
-			dev_dbg(&etspi->spi->dev, "%s spi show\n", __func__);
-		}
-	} else
-		pr_err("Egis navigation driver, etspi is NULL\n");
-
-	if (etspi->input_dev == NULL)
-		pr_err("Egis navigation driver, etspi->input_dev is NULL\n");
+	if (!etspi || !etspi->input_dev || !nav_kthread)
+		return -ENODEV;
+	if (!count)
+		return -EINVAL;
 	tempcmd = kmalloc(sizeof(*tempcmd), GFP_KERNEL);
 	if (tempcmd != NULL) {
 		mutex_lock(&driver_mode_lock);
@@ -589,8 +577,7 @@ static ssize_t navigation_event_func(struct device *dev,
 		mutex_unlock(&driver_mode_lock);
 		wake_up_interruptible(&nav_input_wait);
 	} else {
-		pr_err("navigation_event_func kmalloc failed\n");
-
+		return -ENOMEM;
 	}
 	return count;
 }
@@ -670,110 +657,102 @@ static int nav_input_thread(void *et_spi)
 }
 
 
-void uinput_egis_init(struct etspi_data *etspi)
+int uinput_egis_init(struct etspi_data *etspi)
 {
-	int error = 0;
+	int error;
 
-	DEBUG_PRINT("Egis navigation driver, %s\n", __func__);
-
-	etspi->property_navigation_enable = PROPERTY_NAVIGATION_ENABLE_DEFAULT ;
+	etspi->property_navigation_enable = PROPERTY_NAVIGATION_ENABLE_DEFAULT;
 	etspi->input_dev = input_allocate_device();
-
-	if (!etspi->input_dev) {
-		pr_err("Egis navigation driver, Input_allocate_device failed.\n");
-		return;
-	}
-
+	if (!etspi->input_dev)
+		return -ENOMEM;
 
 	INIT_LIST_HEAD(&cmd_list.list);
 	nav_input_sig = 0;
-	if (!nav_kthread) {
-		nav_kthread = kthread_run(nav_input_thread,
-			(void *)etspi, "nav_thread");
-	}
 #if ENABLE_TRANSLATED_LONG_TOUCH
-	init_timer(&long_touch_timer);
-	long_touch_timer.function = long_touch_handler;
+	timer_setup(&etspi->long_touch_timer, long_touch_handler, 0);
 #endif
-
-
 	etspi->input_dev->name = "uinput-egis";
-
 	init_event_enable(etspi);
-
-	/* Register the input device */
 	error = input_register_device(etspi->input_dev);
 	if (error) {
-		pr_err("Egis navigation driver, Input_register_device failed.\n");
 		input_free_device(etspi->input_dev);
 		etspi->input_dev = NULL;
+		return error;
 	}
+
+	nav_kthread = kthread_run(nav_input_thread, etspi, "nav_thread");
+	if (IS_ERR(nav_kthread)) {
+		error = PTR_ERR(nav_kthread);
+		nav_kthread = NULL;
+		input_unregister_device(etspi->input_dev);
+		etspi->input_dev = NULL;
+		return error;
+	}
+
 	g_DoubleClickJiffies = 0;
 	g_SingleClickJiffies = 0;
+	return 0;
 }
 
 void uinput_egis_destroy(struct etspi_data *etspi)
 {
-	DEBUG_PRINT("Egis navigation driver, %s\n", __func__);
+	struct navi_cmd_struct *cmd, *tmp;
 
-
-	g_DoubleClickJiffies = 0;
-	g_SingleClickJiffies = 0;
-
-	if (etspi->input_dev != NULL) {
+	if (nav_kthread) {
+		kthread_stop(nav_kthread);
+		nav_kthread = NULL;
+	}
+#if ENABLE_TRANSLATED_LONG_TOUCH
+	del_timer_sync(&etspi->long_touch_timer);
+#endif
+	mutex_lock(&driver_mode_lock);
+	list_for_each_entry_safe(cmd, tmp, &cmd_list.list, list) {
+		list_del(&cmd->list);
+		kfree(cmd);
+	}
+	mutex_unlock(&driver_mode_lock);
+	if (etspi->input_dev) {
 		input_unregister_device(etspi->input_dev);
-		input_free_device(etspi->input_dev);
 		etspi->input_dev = NULL;
 	}
-
-#if ENABLE_TRANSLATED_LONG_TOUCH
-	del_timer(&long_touch_timer);
-#endif
-
-	if (nav_kthread)
-		kthread_stop(nav_kthread);
-
-	nav_kthread = NULL;
+	g_DoubleClickJiffies = 0;
+	g_SingleClickJiffies = 0;
 }
 
-
-void sysfs_egis_init(struct etspi_data *etspi)
+int sysfs_egis_init(struct etspi_data *etspi)
 {
+	struct platform_device *pdev;
 	int status;
 
-	DEBUG_PRINT("Egis navigation driver, egis_input device init\n");
-	etspi->spi = platform_device_alloc("egis_input", -1);
-	if (!etspi->spi) {
-		pr_err("Egis navigation driver, platform_device_alloc fail\n");
-		return;
-	}
+	pdev = platform_device_alloc("egis_input", -1);
+	if (!pdev)
+		return -ENOMEM;
 
-	status = platform_device_add(etspi->spi);
-	if (status != 0) {
-		pr_err("Egis navigation driver, platform_device_add fail\n");
-		platform_device_put(etspi->spi);
-		return;
-	}
+	dev_set_drvdata(&pdev->dev, etspi);
+	status = platform_device_add(pdev);
+	if (status)
+		goto put_device;
 
-	dev_set_drvdata(&etspi->spi->dev, etspi);
-	status = sysfs_create_group(&etspi->spi->dev.kobj, &attribute_group);
-	if (status) {
-		pr_err("Egis navigation driver, could not create sysfs\n");
-		platform_device_del(etspi->spi);
-		platform_device_put(etspi->spi);
-		return;
-	}
+	status = sysfs_create_group(&pdev->dev.kobj, &attribute_group);
+	if (status)
+		goto del_device;
 
-	kobject_uevent(&etspi->spi->dev.kobj, KOBJ_CHANGE);  // chengql2
+	etspi->navi_device = pdev;
+	kobject_uevent(&pdev->dev.kobj, KOBJ_CHANGE);
+	return 0;
+
+del_device:
+	platform_device_del(pdev);
+put_device:
+	platform_device_put(pdev);
+	return status;
 }
 
 void sysfs_egis_destroy(struct etspi_data *etspi)
 {
-	DEBUG_PRINT("Egis navigation driver, %s\n", __func__);
-
-	if (etspi->spi) {
-		sysfs_remove_group(&etspi->spi->dev.kobj, &attribute_group);
-		platform_device_del(etspi->spi);
-		platform_device_put(etspi->spi);
+	if (etspi->navi_device) {
+		sysfs_remove_group(&etspi->navi_device->dev.kobj, &attribute_group);
+		platform_device_unregister(etspi->navi_device);
+		etspi->navi_device = NULL;
 	}
 }
