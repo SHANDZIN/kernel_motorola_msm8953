@@ -20,6 +20,7 @@
 #include <linux/cdev.h>
 #include <linux/miscdevice.h>
 #include <linux/gpio.h>
+#include <linux/kref.h>
 
 #include <linux/printk.h>
 #include <linux/module.h>
@@ -117,8 +118,11 @@ struct egis_ioc_transfer {
 
 struct etspi_data {
 	dev_t devt;
-	spinlock_t spi_lock;
 	struct platform_device *spi;
+	struct platform_device *navi_device;
+	struct timer_list long_touch_timer;
+	struct kref refcount;
+	bool removed;
 	struct list_head device_entry;
 
 	/* buffer is NULL unless this device is open (users > 0) */
