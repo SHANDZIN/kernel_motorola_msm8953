@@ -1265,10 +1265,10 @@ static int VosRXThread ( void * Arg )
            "%s: wait_event_interruptible returned -ERESTARTSYS", __func__);
         break;
     }
-    clear_bit(RX_POST_EVENT, &pSchedContext->rxEventFlag);
-
     while(1)
     {
+      /* Clear before checking queues so new work keeps suspend blocked. */
+      clear_bit(RX_POST_EVENT, &pSchedContext->rxEventFlag);
       if(test_bit(RX_SHUTDOWN_EVENT, &pSchedContext->rxEventFlag))
       {
         VOS_TRACE(VOS_MODULE_ID_VOSS, VOS_TRACE_LEVEL_INFO,
