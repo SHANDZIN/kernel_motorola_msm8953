@@ -260,6 +260,7 @@ static int fusb30x_probe(struct i2c_client *client,
 			sizeof(struct dual_role_phy_desc),
 			GFP_KERNEL);
 		if (!desc) {
+			ret = -ENOMEM;
 			dev_err(&client->dev, "unable to allocate dual role descriptor\n");
 			goto unregister_usbcpsy;
 		}
@@ -296,6 +297,10 @@ static int fusb30x_probe(struct i2c_client *client,
 		desc->property_is_writeable = dual_role_is_writeable;
 		dual_role = devm_dual_role_instance_register(
 					   &client->dev, desc);
+		if (IS_ERR(dual_role)) {
+			ret = PTR_ERR(dual_role);
+			goto unregister_usbcpsy;
+		}
 		dual_role->drv_data = client;
 		chip->dual_role = dual_role;
 		chip->desc = desc;
