@@ -2250,8 +2250,6 @@ static int get_prop_capacity(struct fg_chip *chip)
 
 	if (chip->battery_missing)
 		return MISSING_CAPACITY;
-	if (!chip->profile_loaded && !chip->use_otp_profile)
-		return DEFAULT_CAPACITY;
 	if (chip->charge_full)
 		return FULL_CAPACITY;
 	if (chip->soc_empty) {
@@ -2261,6 +2259,11 @@ static int get_prop_capacity(struct fg_chip *chip)
 		return EMPTY_CAPACITY;
 	}
 	msoc = get_monotonic_soc_raw(chip);
+	if (msoc < 0) {
+		if (!chip->profile_loaded && !chip->use_otp_profile)
+			return DEFAULT_CAPACITY;
+		return msoc;
+	}
 	if (msoc == 0) {
 		if (fg_reset_on_lockup && chip->use_vbat_low_empty_soc) {
 			rc = fg_get_vbatt_status(chip, &vbatt_low_sts);
@@ -4573,6 +4576,8 @@ static int fg_power_get_property(struct power_supply *psy,
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY:
 		val->intval = get_prop_capacity(chip);
+		if (val->intval < 0)
+			return val->intval;
 		break;
 	case POWER_SUPPLY_PROP_CAPACITY_RAW:
 		val->intval = get_sram_prop_now(chip, FG_DATA_BATT_SOC);
@@ -6558,7 +6563,7 @@ done:
 	rc = populate_system_data(chip);
 	if (rc) {
 		pr_err("failed to read ocv properties=%d\n", rc);
-		return rc;
+		goto no_profile;
 	}
 	estimate_battery_age(chip, &chip->actual_cap_uah);
 	schedule_work(&chip->status_change_work);
@@ -7043,7 +7048,13 @@ static int fg_of_init(struct fg_chip *chip)
 				* FULL_SOC_RAW, FULL_CAPACITY);
 	OF_READ_SETTING(FG_MEM_RESUME_SOC, "resume-soc-raw", rc, 1);
 	OF_READ_SETTING(FG_MEM_IRQ_VOLT_EMPTY, "irq-volt-empty-mv", rc, 1);
-	OF_READ_SETTING(FG_MEM_VBAT_EST_DIFF, "vbat-estimate-diff-mv", rc, 1);
+	if (of_find_property(node, "qcom,vbat-estimate-diff-mv", NULL)) {
+		OF_READ_SETTING(FG_MEM_VBAT_EST_DIFF,
+				"vbat-estimate-diff-mv", rc, 1);
+	} else {
+		OF_READ_SETTING(FG_MEM_VBAT_EST_DIFF,
+				"fg-vbat-estimate-diff-mv", rc, 1);
+	}
 	OF_READ_SETTING(FG_MEM_DELTA_SOC, "fg-delta-soc", rc, 1);
 	OF_READ_SETTING(FG_MEM_BATT_LOW, "fg-vbatt-low-threshold", rc, 1);
 	OF_READ_SETTING(FG_MEM_THERM_DELAY, "fg-therm-delay-us", rc, 1);
@@ -8026,9 +8037,9 @@ static int fg_common_hw_init(struct fg_chip *chip)
 	}
 
 	rc = fg_mem_masked_write(chip, settings[FG_MEM_DELTA_SOC].address, 0xFF,
-		settings[FG_MEM_DELTA_SOC].value,
-		settings[FG_MEM_DELTA_SOC].offset);
-	
+			DIV_ROUND_CLOSEST(settings[FG_MEM_DELTA_SOC].value *
+					  FULL_SOC_RAW, FULL_CAPACITY),
+			settings[FG_MEM_DELTA_SOC].offset);
 	if (rc) {
 		pr_err("failed to write delta soc rc=%d\n", rc);
 		return rc;
@@ -9181,7 +9192,6 @@ static struct platform_driver fg_driver = {
 
 static int __init fg_init(void)
 {
-	fg_sram_update_period_ms = 3000;
 	return platform_driver_register(&fg_driver);
 }
 
