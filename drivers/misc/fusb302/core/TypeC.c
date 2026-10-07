@@ -1574,8 +1574,6 @@ void SetStateAttachedSink(void)
 	DeviceWrite(regMask, 1, &Registers.Mask.byte);
 	loopCounter = 0;
 
-	if(chip->dual_role)
-		dual_role_instance_changed(chip->dual_role);
 	ConnState = AttachedSink;	// Set the state machine variable to Attached.Sink
 	setStateSink();
 	platform_notify_cc_orientation_bool(blnCCPinIsCC2);
@@ -1585,6 +1583,8 @@ void SetStateAttachedSink(void)
 	platform_toggleAudioSwitch(fsa_usb_mode);
 	usbc_psy_type = POWER_SUPPLY_TYPE_UFP;
 	fusb_psy_changed();
+	if (chip->dual_role)
+		dual_role_instance_changed(chip->dual_role);
 }
 #endif // FSC_HAVE_SNK
 
