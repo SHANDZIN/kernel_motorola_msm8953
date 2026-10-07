@@ -4431,9 +4431,9 @@ static int __qseecom_send_modfd_cmd(struct qseecom_dev_handle *data,
 			goto out;
 	}
 
-	/*Copy the response back to the userspace buffer*/
-	memcpy(origin_rsp_buf_kvirt, req.resp_buf, req.resp_len);
+	/* Copy the response last, as it may overlap the request buffer. */
 	memcpy(origin_req_buf_kvirt, req.cmd_req_buf, req.cmd_req_len);
+	memcpy(origin_rsp_buf_kvirt, req.resp_buf, req.resp_len);
 
 out:
 	if (req.cmd_req_buf)
