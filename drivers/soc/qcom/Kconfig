@@ -353,6 +353,15 @@ config QCOM_WCNSS_CTRL
 	  Client driver for the WCNSS_CTRL SMD channel, used to download nv
 	  firmware to a newly booted WCNSS chip.
 
+config MMI_UNIT_INFO
+	bool "Motorola modem unit information"
+	depends on QCOM_SMEM=y && MSM_PIL_MSS_QDSP6V5
+	help
+	  Publish Motorola board and boot information in the legacy SMEM
+	  unit-info layout before loading the modem firmware.
+	  This supplies device, hardware revision and carrier information
+	  expected by the legacy Motorola modem firmware.
+
 config MSM_PIL_MSS_QDSP6V5
 	tristate "MSS QDSP6v5 (Hexagon) Boot Support"
 	depends on MSM_PIL && MSM_SUBSYSTEM_RESTART

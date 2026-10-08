@@ -35,6 +35,7 @@
 #include "peripheral-loader.h"
 #include "pil-q6v5.h"
 #include "pil-msa.h"
+#include "mmi-unit-info.h"
 
 #define PROXY_TIMEOUT_MS	10000
 #define MAX_SSR_REASON_LEN	256U
@@ -146,9 +147,14 @@ static int modem_shutdown(const struct subsys_desc *subsys, bool force_stop)
 static int modem_powerup(const struct subsys_desc *subsys)
 {
 	struct modem_data *drv = subsys_to_drv(subsys);
+	int ret;
 
 	if (subsys->is_not_loadable)
 		return 0;
+	ret = mmi_unit_info_publish();
+	if (ret)
+		return ret;
+
 	/*
 	 * At this time, the modem is shutdown. Therefore this function cannot
 	 * run concurrently with the watchdog bite error handler, making it safe
