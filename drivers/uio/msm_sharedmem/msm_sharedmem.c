@@ -15,6 +15,8 @@
 
 #include <soc/qcom/secure_buffer.h>
 
+#include "sharedmem_qmi.h"
+
 #define CLIENT_ID_PROP "qcom,client-id"
 #define MPSS_RMTS_CLIENT_ID 1
 
@@ -118,6 +120,7 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 	bool is_addr_dynamic = false;
 	bool guard_memory = false;
 	bool vm_nav_path = false;
+	struct sharemem_qmi_entry qmi_entry;
 
 	/* Get the addresses from platform-data */
 	if (!pdev->dev.of_node) {
@@ -203,6 +206,19 @@ static int msm_sharedmem_probe(struct platform_device *pdev)
 	}
 	dev_set_drvdata(&pdev->dev, info);
 
+	qmi_entry.client_id = client_id;
+	qmi_entry.client_name = info->name;
+	qmi_entry.address = info->mem[0].addr;
+	qmi_entry.size = info->mem[0].size;
+	qmi_entry.is_addr_dynamic = is_addr_dynamic;
+	ret = sharedmem_qmi_add_entry(&qmi_entry);
+	if (ret) {
+		pr_err("RFSA buffer registration failed for client %u: %d\n",
+			client_id, ret);
+		/* Keep the existing UIO transport available to rmt_storage. */
+		ret = 0;
+	}
+
 	pr_info("Device created for client '%s'\n", clnt_res->name);
 out:
 	return ret;
@@ -211,7 +227,10 @@ out:
 static int msm_sharedmem_remove(struct platform_device *pdev)
 {
 	struct uio_info *info = dev_get_drvdata(&pdev->dev);
+	u32 client_id;
 
+	if (!of_property_read_u32(pdev->dev.of_node, CLIENT_ID_PROP, &client_id))
+		sharedmem_qmi_remove_entry(client_id);
 	uio_unregister_device(info);
 
 	return 0;
@@ -242,12 +261,13 @@ static int __init msm_sharedmem_init(void)
 		pr_err("Platform driver registration failed\n");
 		return result;
 	}
-	return 0;
+	return sharedmem_qmi_init();
 }
 
 static void __exit msm_sharedmem_exit(void)
 {
 	platform_driver_unregister(&msm_sharedmem_driver);
+	sharedmem_qmi_exit();
 }
 
 module_init(msm_sharedmem_init);
