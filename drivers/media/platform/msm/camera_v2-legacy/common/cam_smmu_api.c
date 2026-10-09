@@ -620,7 +620,6 @@ static int cam_smmu_alloc_scratch_va(struct scratch_mapping *mapping,
 					size_t size,
 					dma_addr_t *iova)
 {
-	int rc = 0;
 	unsigned int order = get_order(size);
 	unsigned int align = 0;
 	unsigned int count, start;
@@ -638,13 +637,13 @@ static int cam_smmu_alloc_scratch_va(struct scratch_mapping *mapping,
 	start = bitmap_find_next_zero_area(mapping->bitmap, mapping->bits, 0,
 					   count, align);
 
-	if (start > mapping->bits)
-		rc = -ENOMEM;
+	if (start >= mapping->bits)
+		return -ENOMEM;
 
 	bitmap_set(mapping->bitmap, start, count);
 
 	*iova = mapping->base + (start << (mapping->order + PAGE_SHIFT));
-	return rc;
+	return 0;
 }
 
 static int cam_smmu_free_scratch_va(struct scratch_mapping *mapping,
@@ -655,19 +654,19 @@ static int cam_smmu_free_scratch_va(struct scratch_mapping *mapping,
 	unsigned int count = ((size >> PAGE_SHIFT) +
 			      (1 << mapping->order) - 1) >> mapping->order;
 
-	if (!addr) {
+	if (!addr || addr < mapping->base) {
 		pr_err("Error: Invalid address\n");
-		return -EINVAL;
-	}
-
-	if (start + count > mapping->bits) {
-		pr_err("Error: Invalid page bits in scratch map\n");
 		return -EINVAL;
 	}
 
 	/* Transparently, add a guard page to the total count of pages
 	 * to be freed */
 	count++;
+
+	if (start >= mapping->bits || count > mapping->bits - start) {
+		pr_err("Error: Invalid page bits in scratch map\n");
+		return -EINVAL;
+	}
 
 	bitmap_clear(mapping->bitmap, start, count);
 
@@ -983,7 +982,7 @@ static int cam_smmu_alloc_scratch_buffer_add_to_list(int idx,
 {
 	unsigned long nents = virt_len / phys_len;
 	struct cam_dma_buff_info *mapping_info = NULL;
-	size_t unmapped;
+	size_t unmapped, mapped;
 	dma_addr_t iova = 0;
 	struct scatterlist *sg;
 	int i = 0;
@@ -1031,16 +1030,15 @@ static int cam_smmu_alloc_scratch_buffer_add_to_list(int idx,
 
 	if (rc < 0) {
 		pr_err("Could not find valid iova for scratch buffer");
-		goto err_iommu_map;
+		goto err_free_pages;
 	}
 
-	if (iommu_map_sg(domain,
-			  iova,
-			  table->sgl,
-			  table->nents,
-			  iommu_dir) != virt_len) {
+	mapped = iommu_map_sg(domain, iova, table->sgl, table->nents,
+			      iommu_dir);
+	if (mapped != virt_len) {
 		pr_err("iommu_map_sg() failed");
-		goto err_iommu_map;
+		rc = -ENOMEM;
+		goto err_mapping_info;
 	}
 
 	/* Now update our mapping information within the cb_set struct */
@@ -1073,10 +1071,14 @@ static int cam_smmu_alloc_scratch_buffer_add_to_list(int idx,
 	return 0;
 
 err_mapping_info:
-	unmapped = iommu_unmap(domain, iova,  virt_len);
-	if (unmapped != virt_len)
-		pr_err("Unmapped only %zx instead of %zx", unmapped, virt_len);
-err_iommu_map:
+	if (mapped) {
+		unmapped = iommu_unmap(domain, iova, mapped);
+		if (unmapped != mapped)
+			pr_err("Unmapped only %zx instead of %zx", unmapped, mapped);
+	}
+	cam_smmu_free_scratch_va(&iommu_cb_set.cb_info[idx].scratch_map,
+			       iova, virt_len);
+err_free_pages:
 	__free_pages(sg_page(table->sgl), get_order(phys_len));
 err_page_alloc:
 	sg_free_table(table);
