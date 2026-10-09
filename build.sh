@@ -135,8 +135,6 @@ setup_toolchain() {
 
 export ARCH=arm64
 export SUBARCH=arm64
-export KBUILD_BUILD_HOST=viktor
-export KBUILD_BUILD_USER=vhmit
 export LLVM=1
 export LLVM_IAS=1
 export CC=clang
