@@ -1390,26 +1390,27 @@ done:
  */
 static int nqx_clock_select(struct nqx_dev *nqx_dev)
 {
-	int r = 0;
+	struct clk *clk;
+	int r;
 
-	nqx_dev->s_clk = clk_get(&nqx_dev->client->dev, "ref_clk");
+	if (!nqx_dev->s_clk) {
+		clk = devm_clk_get(&nqx_dev->client->dev, "ref_clk");
+		if (IS_ERR(clk))
+			return PTR_ERR(clk);
+		nqx_dev->s_clk = clk;
+	}
 
-	if (nqx_dev->s_clk == NULL)
-		goto err_clk;
+	if (nqx_dev->clk_run)
+		return 0;
 
-	if (!nqx_dev->clk_run)
-		r = clk_prepare_enable(nqx_dev->s_clk);
+	r = clk_prepare_enable(nqx_dev->s_clk);
 
 	if (r)
-		goto err_clk;
+		return r;
 
 	nqx_dev->clk_run = true;
 
-	return r;
-
-err_clk:
-	r = -1;
-	return r;
+	return 0;
 }
 
 /*
@@ -1417,16 +1418,12 @@ err_clk:
  */
 static int nqx_clock_deselect(struct nqx_dev *nqx_dev)
 {
-	int r = -1;
-
-	if (nqx_dev->s_clk != NULL) {
-		if (nqx_dev->clk_run) {
-			clk_disable_unprepare(nqx_dev->s_clk);
-			nqx_dev->clk_run = false;
-		}
+	if (!nqx_dev->clk_run)
 		return 0;
-	}
-	return r;
+
+	clk_disable_unprepare(nqx_dev->s_clk);
+	nqx_dev->clk_run = false;
+	return 0;
 }
 
 static int nfc_parse_dt(struct device *dev, struct nqx_platform_data *pdata)
@@ -1846,6 +1843,7 @@ static int nqx_remove(struct i2c_client *client)
 	gpio_set_value(nqx_dev->en_gpio, 0);
 	// HW dependent delay before LDO goes into LPM mode
 	usleep_range(10000, 10100);
+	nqx_clock_deselect(nqx_dev);
 	if (nqx_dev->reg) {
 		ret = nfc_ldo_unvote(nqx_dev);
 		regulator_put(nqx_dev->reg);
