@@ -11,6 +11,20 @@
  */
 
 &soc {
+	case_therm_sensor: case-therm-sensor {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pm8953_vadc VADC_P_MUX4_1_1>;
+		io-channel-names = "sensor-channel";
+	};
+
+	chg_therm_sensor: chg-therm-sensor {
+		compatible = "generic-adc-thermal";
+		#thermal-sensor-cells = <0>;
+		io-channels = <&pm8953_vadc VADC_P_MUX2_1_1>;
+		io-channel-names = "sensor-channel";
+	};
+
 	qcom,msm-thermal {
 		qcom,config-info = "deen";
 	};
@@ -34,6 +48,23 @@
 
 	case_therm {
 		label = "msm_therm";
+		qcom,scale-fn-type = <1>;
+		qcom,iio-chan-type-override = "IIO_TEMP";
+	};
+};
+
+&thermal_zones {
+	case-therm-adc {
+		thermal-sensors = <&case_therm_sensor>;
+	};
+
+	case-therm-step {
+		thermal-sensors = <&case_therm_sensor>;
+		polling-delay = <2000>;
+	};
+
+	chg-temp-adc {
+		thermal-sensors = <&chg_therm_sensor>;
 	};
 };
 
