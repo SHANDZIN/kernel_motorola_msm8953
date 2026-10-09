@@ -29,6 +29,9 @@ static int gadc_thermal_adc_to_temp(struct gadc_thermal_info *gti, int val)
 	int temp, temp_hi, temp_lo, adc_hi, adc_lo;
 	int i;
 
+	if (!gti->lookup_table)
+		return val;
+
 	for (i = 0; i < gti->nlookup_table; i++) {
 		if (val >= gti->lookup_table[2 * i + 1])
 			break;
@@ -78,6 +81,17 @@ static int gadc_thermal_read_linear_lookup_table(struct device *dev,
 	struct device_node *np = dev->of_node;
 	int ntable;
 	int ret;
+	enum iio_chan_type type;
+
+	if (!of_find_property(np, "temperature-lookup-table", NULL)) {
+		ret = iio_get_channel_type(gti->channel, &type);
+		if (ret)
+			return ret;
+		if (type == IIO_TEMP)
+			return 0;
+		dev_err(dev, "Lookup table required for non-temperature channel\n");
+		return -EINVAL;
+	}
 
 	ntable = of_property_count_elems_of_size(np, "temperature-lookup-table",
 						 sizeof(u32));
@@ -86,7 +100,7 @@ static int gadc_thermal_read_linear_lookup_table(struct device *dev,
 		return ntable;
 	}
 
-	if (ntable % 2) {
+	if (!ntable || ntable % 2) {
 		dev_err(dev, "Pair of temperature vs ADC read value missing\n");
 		return -EINVAL;
 	}
@@ -124,10 +138,6 @@ static int gadc_thermal_probe(struct platform_device *pdev)
 	if (!gti)
 		return -ENOMEM;
 
-	ret = gadc_thermal_read_linear_lookup_table(&pdev->dev, gti);
-	if (ret < 0)
-		return ret;
-
 	gti->dev = &pdev->dev;
 	platform_set_drvdata(pdev, gti);
 
@@ -137,6 +147,10 @@ static int gadc_thermal_probe(struct platform_device *pdev)
 		dev_err(&pdev->dev, "IIO channel not found: %d\n", ret);
 		return ret;
 	}
+
+	ret = gadc_thermal_read_linear_lookup_table(&pdev->dev, gti);
+	if (ret < 0)
+		return ret;
 
 	gti->tz_dev = devm_thermal_zone_of_sensor_register(&pdev->dev, 0, gti,
 							   &gadc_thermal_ops);

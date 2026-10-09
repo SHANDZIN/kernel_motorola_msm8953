@@ -8,6 +8,13 @@ temperature using voltage-temperature lookup table.
 Required properties:
 ===================
 - compatible:		     Must be "generic-adc-thermal".
+- #thermal-sensor-cells:     Should be 0. See ./thermal.txt for a description
+			     of this property.
+- io-channels:              IIO channel connected to the sensor.
+- io-channel-names:         Must be "sensor-channel".
+
+Optional properties:
+====================
 - temperature-lookup-table:  Two dimensional array of Integer; lookup table
 			     to map the relation between ADC value and
 			     temperature. When ADC is read, the value is
@@ -16,8 +23,9 @@ Required properties:
 			     The first value of the each row of array is the
 			     temperature in milliCelsius and second value of
 			     the each row of array is the ADC read value.
-- #thermal-sensor-cells:     Should be 1. See ./thermal.txt for a description
-			     of this property.
+			     Required unless the IIO channel is of type
+			     IIO_TEMP and provides processed temperature in
+			     milliCelsius.
 
 Example :
 #include <dt-bindings/thermal/thermal.h>
