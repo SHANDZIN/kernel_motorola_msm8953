@@ -284,6 +284,9 @@ static int camera_v4l2_dqbuf(struct file *filep, void *fh,
 		return -EIO;
 	mutex_lock(&sp->lock);
 	ret = vb2_dqbuf(&sp->vb2_q, pb, filep->f_flags & O_NONBLOCK);
+	if (!ret) {
+		pb->reserved = pb->timecode.type;
+	}
 	mutex_unlock(&sp->lock);
 	return ret;
 }
