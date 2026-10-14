@@ -570,41 +570,59 @@ static int ion_sgl_sync_range(struct device *dev, struct scatterlist *sgl,
 			      enum dma_data_direction dir, bool for_cpu)
 {
 	int i;
-	struct scatterlist *sg;
+	struct scatterlist *sg, *dma_sg = sgl;
+	unsigned int dma_nents = nents, dma_offset = 0;
+
+	if (!length)
+		return 0;
 
 	for_each_sg(sgl, sg, nents, i) {
-		unsigned int sg_len, sg_offset, size;
-		dma_addr_t sg_dma_addr;
+		unsigned int sg_offset = 0;
 
-		sg_len = sg_dma_len(sg);
-		if (!sg_len)
-			sg_len = sg->length;
-		if (!sg_len)
-			continue;
+		while (sg_offset < sg->length) {
+			unsigned int dma_len, size, sync_size;
 
-		if (offset >= sg_len) {
-			offset -= sg_len;
-			continue;
+			if (!dma_sg || !dma_nents)
+				return -EINVAL;
+
+			dma_len = IS_ENABLED(CONFIG_ION_FORCE_DMA_SYNC) ?
+				dma_sg->length : sg_dma_len(dma_sg);
+			if (dma_offset == dma_len) {
+				dma_sg = sg_next(dma_sg);
+				dma_nents--;
+				dma_offset = 0;
+				continue;
+			}
+
+			size = min(sg->length - sg_offset,
+				   dma_len - dma_offset);
+			if (offset >= size) {
+				offset -= size;
+			} else {
+				sync_size = min_t(unsigned long, length,
+						  size - offset);
+				if (for_cpu)
+					dma_sync_single_range_for_cpu(dev,
+								      sg_dma_address(dma_sg),
+								      dma_offset + offset,
+								      sync_size, dir);
+				else
+					dma_sync_single_range_for_device(dev,
+									 sg_dma_address(dma_sg),
+									 dma_offset + offset,
+									 sync_size, dir);
+
+				length -= sync_size;
+				if (!length)
+					return 0;
+				offset = 0;
+			}
+			sg_offset += size;
+			dma_offset += size;
 		}
-
-		sg_offset = offset;
-		size = min_t(unsigned long, length, sg_len - sg_offset);
-		sg_dma_addr = sg_dma_address(sg);
-
-		if (for_cpu)
-			dma_sync_single_range_for_cpu(dev, sg_dma_addr,
-						      sg_offset, size, dir);
-		else
-			dma_sync_single_range_for_device(dev, sg_dma_addr,
-							 sg_offset, size, dir);
-
-		offset = 0;
-		length -= size;
-		if (length == 0)
-			break;
 	}
 
-	return 0;
+	return -EINVAL;
 }
 
 static int ion_sgl_sync_mapped(struct device *dev, struct scatterlist *sgl,
