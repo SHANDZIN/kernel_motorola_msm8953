@@ -3914,6 +3914,35 @@ int msm_isp_update_axi_stream(struct vfe_device *vfe_dev, void *arg)
 	return rc;
 }
 
+static void msm_isp_log_ping_pong_mismatch(struct vfe_device *vfe_dev,
+	struct msm_vfe_axi_stream *stream_info, uint32_t pingpong_status)
+{
+	uint32_t i, ub, wm;
+	struct msm_vfe_axi_plane_cfg *plane;
+
+	pr_err("VFE%d mismatch status=0x%x session=%u stream=0x%x handle=0x%x src=%u state=%u format=0x%x frame=%u planes=%u\n",
+		vfe_dev->pdev->id, pingpong_status, stream_info->session_id,
+		stream_info->stream_id, stream_info->stream_handle,
+		stream_info->stream_src, stream_info->state,
+		stream_info->output_format, stream_info->frame_id,
+		stream_info->num_planes);
+	for (i = 0; i < stream_info->num_planes &&
+		i < MAX_PLANES_PER_STREAM; i++) {
+		wm = stream_info->wm[i];
+		plane = &stream_info->plane_cfg[i];
+		ub = 0;
+		if (vfe_dev->hw_info->vfe_ops.axi_ops.ub_reg_offset &&
+			wm < vfe_dev->hw_info->axi_hw_info->num_wm)
+			ub = msm_camera_io_r(vfe_dev->vfe_base +
+				vfe_dev->hw_info->vfe_ops.axi_ops.ub_reg_offset(
+					vfe_dev, wm));
+		pr_err("VFE%d plane=%u wm=%u width=%u height=%u stride=%u scanlines=%u offset=0x%x ub=0x%x\n",
+			vfe_dev->pdev->id, i, wm, plane->output_width,
+			plane->output_height, plane->output_stride,
+			plane->output_scan_lines, plane->plane_addr_offset, ub);
+	}
+}
+
 void msm_isp_process_axi_irq_stream(struct vfe_device *vfe_dev,
 		struct msm_vfe_axi_stream *stream_info,
 		uint32_t pingpong_status,
@@ -3947,6 +3976,8 @@ void msm_isp_process_axi_irq_stream(struct vfe_device *vfe_dev,
 	for (i = 0; i < stream_info->num_planes; i++) {
 		if (pingpong_bit !=
 			(~(pingpong_status >> stream_info->wm[i]) & 0x1)) {
+			msm_isp_log_ping_pong_mismatch(vfe_dev, stream_info,
+				pingpong_status);
 			spin_unlock_irqrestore(&stream_info->lock, flags);
 			pr_err("%s: Write master ping pong mismatch. Status: 0x%x\n",
 				__func__, pingpong_status);

@@ -592,22 +592,33 @@ static int32_t msm_actuator_move_focus(
 {
 	int32_t rc = 0;
 	struct damping_params_t *ringing_params_kernel = NULL;
-	int8_t sign_dir = move_params->sign_dir;
+	int8_t sign_dir;
 	uint16_t step_boundary = 0;
 	uint16_t target_step_pos = 0;
 	int16_t target_lens_pos = 0;
-	int16_t dest_step_pos = move_params->dest_step_pos;
+	int16_t dest_step_pos;
 	int16_t curr_lens_pos = 0;
-	int dir = move_params->dir;
-	int32_t num_steps = move_params->num_steps;
+	int dir;
+	int32_t num_steps;
 	struct msm_camera_i2c_reg_setting reg_setting;
+
+	if (!a_ctrl || !move_params)
+		return -EFAULT;
+	sign_dir = move_params->sign_dir;
+	dest_step_pos = move_params->dest_step_pos;
+	dir = move_params->dir;
+	num_steps = move_params->num_steps;
+	if (!a_ctrl->step_position_table || dest_step_pos < 0 ||
+		dest_step_pos > a_ctrl->total_steps ||
+		a_ctrl->curr_step_pos < 0 ||
+		a_ctrl->curr_step_pos > a_ctrl->total_steps)
+		return -EFAULT;
 
 	CDBG("called, dir %d, num_steps %d\n", dir, num_steps);
 
 	if ((dest_step_pos == a_ctrl->curr_step_pos) ||
-		((dest_step_pos <= a_ctrl->total_steps) &&
 		(a_ctrl->step_position_table[dest_step_pos] ==
-		a_ctrl->step_position_table[a_ctrl->curr_step_pos])))
+		a_ctrl->step_position_table[a_ctrl->curr_step_pos]))
 		return rc;
 
 	if ((sign_dir > MSM_ACTUATOR_MOVE_SIGNED_NEAR) ||
@@ -621,11 +632,6 @@ static int32_t msm_actuator_move_focus(
 	}
 	if (a_ctrl->i2c_reg_tbl == NULL) {
 		pr_err("failed. i2c reg table is NULL");
-		return -EFAULT;
-	}
-	if (dest_step_pos > a_ctrl->total_steps) {
-		pr_err("Step pos greater than total steps = %d\n",
-		dest_step_pos);
 		return -EFAULT;
 	}
 	if ((a_ctrl->region_size <= 0) ||
@@ -1673,7 +1679,7 @@ static struct msm_camera_i2c_fn_t msm_sensor_qup_func_tbl = {
 
 static int msm_actuator_close(struct v4l2_subdev *sd,
 	struct v4l2_subdev_fh *fh) {
-	int rc = 0;
+	int rc = 0, ret;
 	struct msm_actuator_ctrl_t *a_ctrl =  v4l2_get_subdevdata(sd);
 
 	CDBG("Enter\n");
@@ -1682,22 +1688,24 @@ static int msm_actuator_close(struct v4l2_subdev *sd,
 		return -EINVAL;
 	}
 	mutex_lock(a_ctrl->actuator_mutex);
+	if (a_ctrl->actuator_state == ACT_OPS_ACTIVE) {
+		rc = msm_actuator_power_down(a_ctrl);
+		if (rc < 0)
+			pr_err("%s:%d Actuator Power down failed\n",
+				__func__, __LINE__);
+	}
 	if (a_ctrl->act_device_type == MSM_CAMERA_PLATFORM_DEVICE &&
 		a_ctrl->actuator_state != ACT_DISABLE_STATE) {
-		rc = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
+		ret = a_ctrl->i2c_client.i2c_func_tbl->i2c_util(
 			&a_ctrl->i2c_client, MSM_CCI_RELEASE);
-		if (rc < 0)
-			pr_err("cci_init failed\n");
+		if (ret < 0) {
+			pr_err("cci_release failed\n");
+			if (!rc)
+				rc = ret;
+		}
 	}
 	kfree(a_ctrl->i2c_reg_tbl);
 	a_ctrl->i2c_reg_tbl = NULL;
-	if (a_ctrl->actuator_state == ACT_OPS_ACTIVE) {
-		rc = msm_actuator_power_down(a_ctrl);
-		if (rc < 0) {
-			pr_err("%s:%d Actuator Power down failed\n",
-				__func__, __LINE__);
-		}
-	}
 	a_ctrl->actuator_state = ACT_DISABLE_STATE;
 	mutex_unlock(a_ctrl->actuator_mutex);
 	CDBG("Exit\n");
@@ -2112,7 +2120,7 @@ static int32_t msm_actuator_platform_probe(struct platform_device *pdev)
 	}
 	rc = msm_sensor_driver_get_gpio_data(&(msm_actuator_t->gconf),
 		(&pdev->dev)->of_node);
-	if (rc <= 0) {
+	if (rc < 0) {
 		pr_err("%s: No/Error Actuator GPIOs\n", __func__);
 	} else {
 		msm_actuator_t->cam_pinctrl_status = 1;

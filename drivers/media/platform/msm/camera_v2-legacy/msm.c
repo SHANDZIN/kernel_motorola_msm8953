@@ -1336,13 +1336,14 @@ static int msm_probe(struct platform_device *pdev)
 	strlcpy(msm_v4l2_dev->mdev->model, MSM_CONFIGURATION_NAME,
 			sizeof(msm_v4l2_dev->mdev->model));
 	msm_v4l2_dev->mdev->dev = &(pdev->dev);
+	media_device_init(msm_v4l2_dev->mdev);
 
 	rc = media_device_register(msm_v4l2_dev->mdev);
 	if (WARN_ON(rc < 0))
 		goto media_fail;
 
-	if (WARN_ON((rc == media_entity_pads_init(&pvdev->vdev->entity,
-					0, NULL)) < 0))
+	rc = media_entity_pads_init(&pvdev->vdev->entity, 0, NULL);
+	if (WARN_ON(rc < 0))
 		goto entity_fail;
 
 	pvdev->vdev->entity.group_id = QCAMERA_VNODE_GROUP_ID;
@@ -1356,7 +1357,6 @@ static int msm_probe(struct platform_device *pdev)
 	if (WARN_ON(rc < 0))
 		goto register_fail;
 
-	media_device_init(msm_v4l2_dev->mdev);
 	strlcpy(pvdev->vdev->name, "msm-config", sizeof(pvdev->vdev->name));
 	pvdev->vdev->release  = video_device_release;
 	pvdev->vdev->fops     = &msm_fops;
@@ -1418,6 +1418,7 @@ register_fail:
 entity_fail:
 	media_device_unregister(msm_v4l2_dev->mdev);
 media_fail:
+	media_device_cleanup(msm_v4l2_dev->mdev);
 	kzfree(msm_v4l2_dev->mdev);
 mdev_fail:
 #endif

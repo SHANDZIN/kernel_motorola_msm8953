@@ -254,7 +254,7 @@ static int32_t msm_generic_buf_mngr_flush(
 }
 
 static int32_t msm_buf_mngr_find_cont_stream(struct msm_buf_mngr_device *dev,
-					     uint32_t *cnt, uint32_t *tstream,
+					     uint32_t *tstream,
 					     struct msm_sd_close_ioctl *session)
 {
 	struct msm_buf_mngr_user_buf_cont_info *cont_bufs, *cont_save;
@@ -263,7 +263,6 @@ static int32_t msm_buf_mngr_find_cont_stream(struct msm_buf_mngr_device *dev,
 	list_for_each_entry_safe(cont_bufs,
 		cont_save, &dev->cont_qhead, entry) {
 		if (cont_bufs->sessid == session->session) {
-			*cnt = cont_bufs->cnt;
 			*tstream = cont_bufs->strid;
 			return 0;
 		}
@@ -271,52 +270,50 @@ static int32_t msm_buf_mngr_find_cont_stream(struct msm_buf_mngr_device *dev,
 	return ret;
 }
 
-static void msm_buf_mngr_contq_listdel(struct msm_buf_mngr_device *dev,
-				     uint32_t session, int32_t stream,
-				     bool unmap, uint32_t cnt)
+static int msm_buf_mngr_contq_listdel(struct msm_buf_mngr_device *dev,
+				    uint32_t session, uint32_t stream,
+				    bool unmap)
 {
-	int rc;
+	int rc = 0;
+	struct dma_buf *dmabuf = NULL;
+	void *vaddr = NULL;
 	struct msm_buf_mngr_user_buf_cont_info *cont_bufs, *cont_save;
 
 	list_for_each_entry_safe(cont_bufs,
 		cont_save, &dev->cont_qhead, entry) {
 		if ((cont_bufs->sessid == session) &&
 		(cont_bufs->strid == stream)) {
-			if (cnt == 1 && unmap) {
-				/* dma_buf_vunmap ignored vaddr(2nd argument) */
-				dma_buf_vunmap(cont_bufs->dmabuf,
-					cont_bufs->paddr);
-				rc = dma_buf_end_cpu_access(cont_bufs->dmabuf,
-					DMA_BIDIRECTIONAL);
-				if (rc) {
-					pr_err("Failed in end cpu access, dmabuf=%pK\n",
-						cont_bufs->dmabuf);
-					return;
-				}
-				dma_buf_put(cont_bufs->dmabuf);
-			}
+			dmabuf = cont_bufs->dmabuf;
+			vaddr = cont_bufs->vaddr;
 			list_del_init(&cont_bufs->entry);
 			kfree(cont_bufs);
-			cnt--;
 		}
 	}
-	if (cnt != 0)
-		pr_err("Buffers pending cnt = %d\n", cnt);
+	if (!dmabuf)
+		return -EINVAL;
+	if (unmap) {
+		dma_buf_vunmap(dmabuf, vaddr);
+		rc = dma_buf_end_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
+		if (rc)
+			pr_err("Failed in end cpu access, rc=%d dmabuf=%pK\n",
+				rc, dmabuf);
+		dma_buf_put(dmabuf);
+	}
+	return rc;
 }
 
 static void msm_buf_mngr_contq_cleanup(struct msm_buf_mngr_device *dev,
 				     struct msm_sd_close_ioctl *session)
 {
-	int32_t stream = -1, found = -1;
-	uint32_t cnt = 0;
+	uint32_t stream = 0;
+	int32_t found;
 
 	do {
-		found = msm_buf_mngr_find_cont_stream(dev, &cnt,
-			&stream, session);
+		found = msm_buf_mngr_find_cont_stream(dev, &stream, session);
 		if (found == -1)
 			break;
 		msm_buf_mngr_contq_listdel(dev, session->session,
-			stream, 1, cnt);
+			stream, true);
 	} while (found == 0);
 }
 
@@ -355,7 +352,7 @@ static int msm_buf_mngr_handle_cont_cmd(struct msm_buf_mngr_device *dev,
 					struct msm_buf_mngr_main_cont_info
 					*cont_cmd)
 {
-	int rc = 0, i = 0;
+	int rc = 0, end_rc, i = 0;
 	struct dma_buf *dmabuf = NULL;
 	struct msm_camera_user_buf_cont_t *iaddr, *temp_addr;
 	struct msm_buf_mngr_user_buf_cont_info *new_entry, *bufs, *save;
@@ -363,6 +360,8 @@ static int msm_buf_mngr_handle_cont_cmd(struct msm_buf_mngr_device *dev,
 
 	if ((cont_cmd->cmd >= MSM_CAMERA_BUF_MNGR_CONT_MAX) ||
 		(cont_cmd->cmd < 0) ||
+		(cont_cmd->cmd == MSM_CAMERA_BUF_MNGR_CONT_MAP &&
+		 !cont_cmd->cnt) ||
 		(cont_cmd->cnt > VB2_MAX_FRAME) ||
 		(cont_cmd->cont_fd < 0)) {
 		pr_debug("Invalid arg passed Cmd:%d, cnt:%d, fd:%d\n",
@@ -391,7 +390,7 @@ static int msm_buf_mngr_handle_cont_cmd(struct msm_buf_mngr_device *dev,
 		if (IS_ERR_OR_NULL(dmabuf)) {
 			pr_err("Failed to get dmabuf for fd %d\n",
 				cont_cmd->cont_fd);
-			rc = -EINVAL;
+			rc = IS_ERR(dmabuf) ? PTR_ERR(dmabuf) : -EINVAL;
 			goto end;
 		}
 		size = dmabuf->size;
@@ -405,13 +404,13 @@ static int msm_buf_mngr_handle_cont_cmd(struct msm_buf_mngr_device *dev,
 		rc = dma_buf_begin_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
 		if (rc) {
 			pr_err("dma begin access failed rc=%d\n", rc);
-			return rc;
+			goto free_ion_handle;
 		}
 		iaddr = dma_buf_vmap(dmabuf);
 		if (IS_ERR_OR_NULL(iaddr)) {
 			pr_err("dma_buf_vmap failed\n");
-			rc = -EINVAL;
-			goto free_ion_handle;
+			rc = IS_ERR(iaddr) ? PTR_ERR(iaddr) : -ENOMEM;
+			goto end_cpu_access;
 		}
 		for (i = 0; i < cont_cmd->cnt; i++) {
 			temp_addr = iaddr + i;
@@ -436,15 +435,15 @@ static int msm_buf_mngr_handle_cont_cmd(struct msm_buf_mngr_device *dev,
 			new_entry->index = i;
 			new_entry->main_fd = cont_cmd->cont_fd;
 			new_entry->dmabuf = dmabuf;
-			new_entry->cnt = cont_cmd->cnt;
 			new_entry->paddr = temp_addr;
+			new_entry->vaddr = iaddr;
 			list_add_tail(&new_entry->entry, &dev->cont_qhead);
 		}
 		goto end;
 	} else if (cont_cmd->cmd == MSM_CAMERA_BUF_MNGR_CONT_UNMAP) {
 		if (!list_empty(&dev->cont_qhead)) {
-			msm_buf_mngr_contq_listdel(dev, cont_cmd->session_id,
-				cont_cmd->stream_id, 1, cont_cmd->cnt);
+			rc = msm_buf_mngr_contq_listdel(dev,
+				cont_cmd->session_id, cont_cmd->stream_id, true);
 		} else {
 			pr_err("Nothing mapped for %d,%d\n",
 				cont_cmd->session_id, cont_cmd->stream_id);
@@ -457,15 +456,15 @@ free_list:
 	if (i != 0) {
 		if (!list_empty(&dev->cont_qhead)) {
 			msm_buf_mngr_contq_listdel(dev, cont_cmd->session_id,
-				cont_cmd->stream_id, 0, i);
+				cont_cmd->stream_id, false);
 		}
 	}
 	dma_buf_vunmap(dmabuf, iaddr);
-	rc = dma_buf_end_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
-	if (rc) {
-		pr_err("Failed in end cpu access, dmabuf=%pK\n", dmabuf);
-		return rc;
-	}
+end_cpu_access:
+	end_rc = dma_buf_end_cpu_access(dmabuf, DMA_BIDIRECTIONAL);
+	if (end_rc)
+		pr_err("Failed in end cpu access, rc=%d dmabuf=%pK\n",
+			end_rc, dmabuf);
 free_ion_handle:
 	dma_buf_put(dmabuf);
 end:

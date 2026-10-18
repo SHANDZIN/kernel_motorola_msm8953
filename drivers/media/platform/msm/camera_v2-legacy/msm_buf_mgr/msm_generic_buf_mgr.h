@@ -48,7 +48,7 @@ struct msm_buf_mngr_user_buf_cont_info {
 	uint32_t index;
 	int32_t main_fd;
 	struct msm_camera_user_buf_cont_t *paddr;
-	uint32_t cnt;
+	void *vaddr;
 	struct dma_buf *dmabuf;
 };
 
