@@ -63,7 +63,8 @@
 	nfc_refclk_default: nfc-refclk-default {
 		pins = "gpio2";
 		function = "normal";
-		output-low;
+		input-enable;
+		output-disable;
 		bias-disable;
 		drive-push-pull;
 		qcom,drive-strength = <PMIC_GPIO_STRENGTH_HIGH>;
