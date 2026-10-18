@@ -77,8 +77,7 @@ anykernel=$HOME/anykernel
 # Set TOOLCHAIN_DIR to reuse an existing Clang 18 installation.
 toolchain_dir="${TOOLCHAIN_DIR:-${kernel_dir}/clang}"
 kernel_name="DeenRev"
-# Pin root code to a tested revision. KSU_REF explicitly requests an update.
-KSU_REV="${KSU_REF:-8770c7e324a22895703c4916b8a16520e0b81c79}"
+KSU_REV="${KSU_REF:-HEAD}"
 ksu_dir="${KSU_DIR:-${XDG_CACHE_HOME:-$HOME/.cache}/DeenRev/KSU}"
 
 
@@ -186,14 +185,8 @@ setup_ksu() {
         echo -e "${RED}Error: KSU checkout has local changes; preserve them before changing revisions.${NC}"
         exit 1
     fi
-    if [ -n "${KSU_REF:-}" ]; then
-        # Updating is explicit; default builds reuse the pinned cached commit.
-        git -C "$ksu_dir" fetch origin "$KSU_REV" || exit "$?"
-        revision=$(git -C "$ksu_dir" rev-parse --verify 'FETCH_HEAD^{commit}') || exit "$?"
-    elif ! revision=$(git -C "$ksu_dir" rev-parse --verify "${KSU_REV}^{commit}" 2>/dev/null); then
-        git -C "$ksu_dir" fetch origin "$KSU_REV" || exit "$?"
-        revision=$(git -C "$ksu_dir" rev-parse --verify 'FETCH_HEAD^{commit}') || exit "$?"
-    fi
+    git -C "$ksu_dir" fetch origin "$KSU_REV" || exit "$?"
+    revision=$(git -C "$ksu_dir" rev-parse --verify 'FETCH_HEAD^{commit}') || exit "$?"
     git -C "$ksu_dir" checkout --quiet --detach "$revision" || exit "$?"
     if [ ! -f "$ksu_dir/kernel/Kconfig" ] ||
        [ ! -f "$ksu_dir/kernel/Kbuild" ]; then
